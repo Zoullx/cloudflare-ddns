@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+  "flag"
 	"fmt"
 	"os"
 	"time"
@@ -65,8 +66,15 @@ func stopUpdating(ctx context.Context, ppfmt pp.PP, c *config.Config, s setter.S
 }
 
 func main() {
-	// This is to make os.Exit work with defer
-	os.Exit(realMain())
+  var healthcheck bool
+  flag.BoolVar(&healthcheck, "healthcheck", false, "Run healthcheck")
+  flag.Parse()
+  if healthcheck {
+    os.Exit(0)
+  } else {
+	  // This is to make os.Exit work with defer
+	  os.Exit(realMain())
+  }
 }
 
 func realMain() int { //nolint:funlen
