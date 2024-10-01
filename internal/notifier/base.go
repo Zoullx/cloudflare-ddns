@@ -12,8 +12,8 @@ import (
 // Notifier is an abstract service for push notifications.
 type Notifier interface {
 	// Describe a notifier in a human-readable format by calling callback with service names and params.
-	Describe(callback func(service, params string))
+	Describe(yield func(name, params string) bool)
 
 	// Send out a message.
-	Send(ctx context.Context, ppfmt pp.PP, msg string) bool
+	Send(ctx context.Context, ppfmt pp.PP, msg Message) bool
 }

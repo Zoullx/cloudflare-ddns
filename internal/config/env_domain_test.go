@@ -13,7 +13,7 @@ import (
 	"github.com/favonia/cloudflare-ddns/internal/pp"
 )
 
-//nolint:paralleltest,funlen // environment vars are global
+//nolint:paralleltest // environment vars are global
 func TestReadDomains(t *testing.T) {
 	key := keyPrefix + "DOMAINS"
 	type ds = []domain.Domain
@@ -40,7 +40,7 @@ func TestReadDomains(t *testing.T) {
 			ds{f("random.org")},
 			false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) contains an ill-formed domain %q: %v", key, "xn--:D.org,a.org", "xn--:d.org", gomock.Any()) //nolint:lll
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) contains an ill-formed domain %q: %v", key, "xn--:D.org,a.org", "xn--:d.org", gomock.Any()) //nolint:lll
 			},
 		},
 		"illformed2": {
@@ -49,7 +49,7 @@ func TestReadDomains(t *testing.T) {
 			ds{f("random.org")},
 			false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) contains an ill-formed domain %q: %v", key, "*.xn--:D.org,a.org", "*.xn--:d.org", gomock.Any()) //nolint:lll
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) contains an ill-formed domain %q: %v", key, "*.xn--:D.org,a.org", "*.xn--:d.org", gomock.Any()) //nolint:lll
 			},
 		},
 		"illformed3": {
@@ -58,7 +58,7 @@ func TestReadDomains(t *testing.T) {
 			ds{},
 			false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) has unexpected token %q", key, "hi.org,(", "(")
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) has unexpected token %q", key, "hi.org,(", "(")
 			},
 		},
 		"illformed4": {
@@ -67,11 +67,10 @@ func TestReadDomains(t *testing.T) {
 			ds{},
 			false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) has unexpected token %q", key, ")", ")")
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) has unexpected token %q", key, ")", ")")
 			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			set(t, key, tc.set, tc.val)
 			field := tc.oldField
@@ -88,7 +87,7 @@ func TestReadDomains(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest,funlen // environment vars are global
+//nolint:paralleltest // environment vars are global
 func TestReadDomainMap(t *testing.T) {
 	for name, tc := range map[string]struct {
 		domains       string
@@ -128,13 +127,12 @@ func TestReadDomainMap(t *testing.T) {
 		"ill-formed": {
 			" ", "   ", "*.*", nil, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError,
+				m.EXPECT().Noticef(pp.EmojiUserError,
 					"%s (%q) contains an ill-formed domain %q: %v",
 					"IP6_DOMAINS", "*.*", "*.*", gomock.Any())
 			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			mockCtrl := gomock.NewController(t)
 

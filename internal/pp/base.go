@@ -3,19 +3,28 @@ package pp
 
 //go:generate mockgen -typed -destination=../mocks/mock_pp.go -package=mocks . PP
 
+// Verbosity is the type of message levels.
+type Verbosity int
+
+// Pre-defined verbosity levels. A higher level means "more verbose".
+const (
+	Notice           Verbosity = iota // useful additional info
+	Info                              // important messages
+	Quiet            Verbosity = Notice
+	Verbose          Verbosity = Info
+	DefaultVerbosity Verbosity = Verbose
+)
+
 // PP is the abstraction of a pretty printer.
 type PP interface {
-	// SetEmoji sets whether emojis should be used.
-	SetEmoji(emoji bool) PP
+	// IsShowing checks whether a message of a certain level will be printed.
+	IsShowing(v Verbosity) bool
 
-	// SetLevel sets the level under which messages will be hidden.
-	SetLevel(level Level) PP
+	// Indent returns a new pretty-printer with more indentation.
+	Indent() PP
 
-	// IsEnabledFor checks whether a message of a certain level will be displayed.
-	IsEnabledFor(level Level) bool
-
-	// IncIndent returns a new pretty-printer with more indentation.
-	IncIndent() PP
+	// BlankLineIfVerbose prints a blank line at the [Verbose] level
+	BlankLineIfVerbose()
 
 	// Infof formats and prints a message at the info level.
 	Infof(emoji Emoji, format string, args ...any)
@@ -23,9 +32,9 @@ type PP interface {
 	// Noticef formats and prints a message at the notice level.
 	Noticef(emoji Emoji, format string, args ...any)
 
-	// Warningf formats and prints a message at the warning level.
-	Warningf(emoji Emoji, format string, args ...any)
+	// SuppressHint suppresses all future calls to [Hintf] with the same hint ID.
+	SuppressHint(hint Hint)
 
-	// Errorf formats and prints a message at the error level.
-	Errorf(emoji Emoji, format string, args ...any)
+	// Hintf formats and prints a hint.
+	Hintf(hint Hint, format string, args ...any)
 }

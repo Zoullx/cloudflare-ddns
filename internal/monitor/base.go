@@ -7,29 +7,33 @@ import (
 	"github.com/favonia/cloudflare-ddns/internal/pp"
 )
 
-//go:generate mockgen -typed -destination=../mocks/mock_monitor.go -package=mocks . Monitor
+//go:generate mockgen -typed -destination=../mocks/mock_monitor.go -package=mocks . BasicMonitor,Monitor
 
 // maxReadLength is the maximum number of bytes read from an HTTP response.
 const maxReadLength int64 = 102400
 
-// Monitor is a dead man's switch, meaning that the user will be notified when the updater fails to
+// BasicMonitor is a dead man's switch, meaning that the user will be notified when the updater fails to
 // detect and update the public IP address. No notifications for IP changes.
-type Monitor interface {
-	// Describe a monitor in a human-readable format by calling callback with service names and params.
-	Describe(callback func(service, params string))
+type BasicMonitor interface {
+	// Describe a monitor as a service name and its parameters.
+	Describe(yield func(service, params string) bool)
 
-	// Success pings the monitor to prevent notifications.
-	Success(ctx context.Context, ppfmt pp.PP, message string) bool
+	// Ping with OK=true prevent notifications.
+	// Ping with OK=false immediately notifies the user.
+	Ping(ctx context.Context, ppfmt pp.PP, msg Message) bool
+}
+
+// Monitor provides more advanced features.
+type Monitor interface {
+	BasicMonitor
 
 	// Start pings the monitor with the start signal.
 	Start(ctx context.Context, ppfmt pp.PP, message string) bool
 
-	// Failure immediately signals the monitor to notify the user.
-	Failure(ctx context.Context, ppfmt pp.PP, message string) bool
+	// Exit pings the monitor with the successful exiting signal.
+	Exit(ctx context.Context, ppfmt pp.PP, message string) bool
 
-	// Log provides additional inforamion without changing the state.
-	Log(ctx context.Context, ppfmt pp.PP, message string) bool
-
-	// ExitStatus records the exit status (as an integer in the POSIX style).
-	ExitStatus(ctx context.Context, ppfmt pp.PP, code int, message string) bool
+	// Log with OK=true provides additional information without changing the state.
+	// Log with OK=false immediately notifies the user.
+	Log(ctx context.Context, ppfmt pp.PP, msg Message) bool
 }

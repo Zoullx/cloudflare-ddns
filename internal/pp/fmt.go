@@ -7,46 +7,49 @@ import (
 )
 
 type formatter struct {
-	writer io.Writer
-	emoji  bool
-	indent int
-	level  Level
+	writer    io.Writer
+	emoji     bool
+	indent    int
+	hintShown map[Hint]bool
+	verbosity Verbosity
 }
 
 // New creates a new pretty printer.
-func New(writer io.Writer) PP {
-	return &formatter{
-		writer: writer,
-		emoji:  true,
-		indent: 0,
-		level:  DefaultLevel,
+func New(writer io.Writer, emoji bool, verbosity Verbosity) PP {
+	return formatter{
+		writer:    writer,
+		emoji:     emoji,
+		indent:    0,
+		hintShown: map[Hint]bool{},
+		verbosity: verbosity,
 	}
 }
 
-func (f *formatter) SetEmoji(emoji bool) PP {
-	fmt := *f
-	fmt.emoji = emoji
-	return &fmt
+// NewDefault creates a new pretty printer with default settings.
+func NewDefault(writer io.Writer) PP {
+	return New(writer, true, DefaultVerbosity)
 }
 
-func (f *formatter) SetLevel(lvl Level) PP {
-	fmt := *f
-	fmt.level = lvl
-	return &fmt
+// IsShowing compares the internal verbosity level against the given level.
+func (f formatter) IsShowing(v Verbosity) bool {
+	return f.verbosity >= v
 }
 
-func (f *formatter) IsEnabledFor(lvl Level) bool {
-	return lvl >= f.level
+// Indent returns a new printer that indents the messages more than the input printer.
+func (f formatter) Indent() PP {
+	f.indent++
+	return f
 }
 
-func (f *formatter) IncIndent() PP {
-	fmt := *f
-	fmt.indent++
-	return &fmt
+// BlankLineIfVerbose prints a blank line.
+func (f formatter) BlankLineIfVerbose() {
+	if f.IsShowing(Verbose) {
+		fmt.Fprintln(f.writer)
+	}
 }
 
-func (f *formatter) output(lvl Level, emoji Emoji, msg string) {
-	if lvl < f.level {
+func (f formatter) output(v Verbosity, emoji Emoji, msg string) {
+	if !f.IsShowing(v) {
 		return
 	}
 
@@ -65,22 +68,29 @@ func (f *formatter) output(lvl Level, emoji Emoji, msg string) {
 	fmt.Fprintln(f.writer, line)
 }
 
-func (f *formatter) printf(lvl Level, emoji Emoji, format string, args ...any) {
-	f.output(lvl, emoji, fmt.Sprintf(format, args...))
+func (f formatter) printf(v Verbosity, emoji Emoji, format string, args ...any) {
+	f.output(v, emoji, fmt.Sprintf(format, args...))
 }
 
-func (f *formatter) Infof(emoji Emoji, format string, args ...any) {
+// Infof formats and sends a message at the level [Info].
+func (f formatter) Infof(emoji Emoji, format string, args ...any) {
 	f.printf(Info, emoji, format, args...)
 }
 
-func (f *formatter) Noticef(emoji Emoji, format string, args ...any) {
+// Noticef formats and sends a message at the level [Notice].
+func (f formatter) Noticef(emoji Emoji, format string, args ...any) {
 	f.printf(Notice, emoji, format, args...)
 }
 
-func (f *formatter) Warningf(emoji Emoji, format string, args ...any) {
-	f.printf(Warning, emoji, format, args...)
+// SuppressHint sets the hint in the internal map to be "shown".
+func (f formatter) SuppressHint(hint Hint) {
+	f.hintShown[hint] = true
 }
 
-func (f *formatter) Errorf(emoji Emoji, format string, args ...any) {
-	f.printf(Error, emoji, format, args...)
+// Hintf calls [Infof] with the emoji [EmojiHint].
+func (f formatter) Hintf(hint Hint, format string, args ...any) {
+	if !f.hintShown[hint] {
+		f.Infof(EmojiHint, format, args...)
+		f.hintShown[hint] = true
+	}
 }

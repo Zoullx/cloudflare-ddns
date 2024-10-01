@@ -22,7 +22,7 @@ func useMemFS(t *testing.T, memfs fstest.MapFS) {
 }
 
 //nolint:paralleltest // changing global var file.FS
-func TestReadStringOkay(t *testing.T) {
+func TestReadString(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
 
 	path := "test/file.txt"
@@ -51,7 +51,7 @@ func TestReadStringWrongPath(t *testing.T) {
 
 	path := "wrong/path.txt"
 	mockPP := mocks.NewMockPP(mockCtrl)
-	mockPP.EXPECT().Errorf(pp.EmojiUserError, "Failed to read %q: %v", path, gomock.Any())
+	mockPP.EXPECT().Noticef(pp.EmojiUserError, "Failed to read %q: %v", path, gomock.Any())
 	content, ok := file.ReadString(mockPP, path)
 	require.False(t, ok)
 	require.Empty(t, content)
@@ -70,14 +70,14 @@ func TestReadStringNoAccess(t *testing.T) {
 	})
 
 	mockPP := mocks.NewMockPP(mockCtrl)
-	mockPP.EXPECT().Errorf(pp.EmojiUserError, "Failed to read %q: %v", "dir", gomock.Any())
+	mockPP.EXPECT().Noticef(pp.EmojiUserError, "Failed to read %q: %v", "dir", gomock.Any())
 	content, ok := file.ReadString(mockPP, "dir")
 	require.False(t, ok)
 	require.Empty(t, content)
 }
 
 //nolint:paralleltest // reading global var file.FS
-func TestReadStringOkayAbsolutePath(t *testing.T) {
+func TestReadStringAbsolutePath(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
 
 	path := "test/file.txt"

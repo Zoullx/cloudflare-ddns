@@ -3,25 +3,28 @@ package pp
 // Emoji is the type of emoji strings.
 type Emoji string
 
+// Various constants defining emojis used in the updater.
 const (
-	EmojiStar   Emoji = "🌟" // stars attached to the tool name
+	EmojiStar   Emoji = "🌟" // stars attached to the updater name
 	EmojiBullet Emoji = "🔸" // generic bullet points
 
 	EmojiEnvVars      Emoji = "📖" // reading configuration
 	EmojiConfig       Emoji = "🔧" // showing configuration
 	EmojiInternet     Emoji = "🌐" // network address detection
-	EmojiPrivileges   Emoji = "🥷" // /privileges
 	EmojiMute         Emoji = "🔇" // quiet mode
+	EmojiDisabled     Emoji = "🚫" // feature is disabled
 	EmojiExperimental Emoji = "🧪" // experimental features
+	EmojiSwitch       Emoji = "🔀" // the happy eyeballs algorithm chose the alternative
 
-	EmojiCreateRecord Emoji = "🐣" // adding new DNS records
-	EmojiDeleteRecord Emoji = "💀" // deleting DNS records
-	EmojiUpdateRecord Emoji = "📡" // updating DNS records
-	EmojiClearRecord  Emoji = "🧹" // clearing DNS records
+	EmojiCreation Emoji = "🐣" // adding new DNS records
+	EmojiDeletion Emoji = "💀" // deleting DNS records
+	EmojiUpdate   Emoji = "📡" // updating DNS records
+	EmojiClear    Emoji = "🧹" // clearing DNS records when exiting
 
-	EmojiPing         Emoji = "🔔" // pinging and health checks
-	EmojiNotification Emoji = "📨" // notifications
+	EmojiPing   Emoji = "🔔" // pinging and health checks
+	EmojiNotify Emoji = "📣" // notifications
 
+	EmojiTimeout     Emoji = "⌛" // Timeout or abortion
 	EmojiSignal      Emoji = "🚨" // catching signals
 	EmojiAlreadyDone Emoji = "🤷" // DNS records were already up to date
 	EmojiNow         Emoji = "🏃" // an event that is happening now or immediately

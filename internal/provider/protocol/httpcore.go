@@ -7,6 +7,7 @@ import (
 
 	"github.com/hashicorp/go-retryablehttp"
 
+	"github.com/favonia/cloudflare-ddns/internal/ipnet"
 	"github.com/favonia/cloudflare-ddns/internal/pp"
 )
 
@@ -14,6 +15,7 @@ import (
 const maxReadLength int64 = 102400
 
 type httpCore struct {
+	ipNet             ipnet.Type
 	url               string
 	method            string
 	additionalHeaders map[string]string
@@ -21,12 +23,12 @@ type httpCore struct {
 	extract           func(pp.PP, []byte) (netip.Addr, bool)
 }
 
-func (h *httpCore) getIP(ctx context.Context, ppfmt pp.PP) (netip.Addr, bool) {
+func (h httpCore) getIP(ctx context.Context, ppfmt pp.PP) (netip.Addr, bool) {
 	var invalidIP netip.Addr
 
 	req, err := retryablehttp.NewRequestWithContext(ctx, h.method, h.url, h.requestBody)
 	if err != nil {
-		ppfmt.Warningf(pp.EmojiImpossible, "Failed to prepare HTTP(S) request to %q: %v", h.url, err)
+		ppfmt.Noticef(pp.EmojiImpossible, "Failed to prepare HTTP(S) request to %q: %v", h.url, err)
 		return invalidIP, false
 	}
 
@@ -34,19 +36,18 @@ func (h *httpCore) getIP(ctx context.Context, ppfmt pp.PP) (netip.Addr, bool) {
 		req.Header.Set(header, value)
 	}
 
-	c := retryablehttp.NewClient()
-	c.Logger = nil
+	c := SharedRetryableSplitClient(h.ipNet)
 
 	resp, err := c.Do(req)
 	if err != nil {
-		ppfmt.Warningf(pp.EmojiError, "Failed to send HTTP(S) request to %q: %v", h.url, err)
+		ppfmt.Noticef(pp.EmojiError, "Failed to send HTTP(S) request to %q: %v", h.url, err)
 		return invalidIP, false
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxReadLength))
 	if err != nil {
-		ppfmt.Warningf(pp.EmojiError, "Failed to read HTTP(S) response from %q: %v", h.url, err)
+		ppfmt.Noticef(pp.EmojiError, "Failed to read HTTP(S) response from %q: %v", h.url, err)
 		return invalidIP, false
 	}
 

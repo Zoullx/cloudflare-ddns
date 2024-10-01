@@ -1,5 +1,6 @@
 # We use cross-compilation because QEMU is slow.
-FROM --platform=${BUILDPLATFORM} golang:1.22.0-alpine3.18@sha256:2745a45f77ae2e7be569934fa9a111f067d04c767f54577e251d9b101250e46b AS build
+FROM --platform=${BUILDPLATFORM} golang:1.23.1-alpine3.20@sha256:ac67716dd016429be8d4c2c53a248d7bcdf06d34127d3dc451bda6aa5a87bc06 AS build
+
 ARG GIT_DESCRIBE
 ARG TARGETOS
 ARG TARGETARCH
@@ -12,11 +13,12 @@ COPY [".", "/src/"]
 # Compile the code.
 RUN \
   CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOARM=${TARGETVARIANT#v} \
-  go build -tags timetzdata -trimpath -ldflags="-w -s -X main.Version=${GIT_DESCRIBE} -buildid=" \
+  go build -tags "timetzdata" -trimpath -ldflags="-w -s -X main.Version=${GIT_DESCRIBE} -buildid=" \
   -o /bin/ddns ./cmd/ddns
 
 # The minimal images contain only the program and the consolidated certificates.
 FROM scratch AS minimal
 COPY --from=build /bin/ddns /bin/
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+USER 1000:1000
 ENTRYPOINT ["/bin/ddns"]

@@ -34,20 +34,19 @@ func TestParseList(t *testing.T) {
 			ds{f("a"), f("b"), f("c"), f("d")},
 			func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().Warningf(pp.EmojiUserError, `%s (%q) is missing a comma "," before %q`, key, " a b c d ", "b"),
-					m.EXPECT().Warningf(pp.EmojiUserError, `%s (%q) is missing a comma "," before %q`, key, " a b c d ", "c"),
-					m.EXPECT().Warningf(pp.EmojiUserError, `%s (%q) is missing a comma "," before %q`, key, " a b c d ", "d"),
+					m.EXPECT().Noticef(pp.EmojiUserError, `%s (%q) is missing a comma "," before %q`, key, " a b c d ", "b"),
+					m.EXPECT().Noticef(pp.EmojiUserError, `%s (%q) is missing a comma "," before %q`, key, " a b c d ", "c"),
+					m.EXPECT().Noticef(pp.EmojiUserError, `%s (%q) is missing a comma "," before %q`, key, " a b c d ", "d"),
 				)
 			},
 		},
 		"illformed/1": {
 			"&", false, nil,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, "&", domainexp.ErrSingleAnd)
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, "&", domainexp.ErrSingleAnd)
 			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -77,7 +76,6 @@ func (m ErrorMatcher) String() string {
 	return m.Error.Error()
 }
 
-//nolint:funlen
 func TestParseExpression(t *testing.T) {
 	t.Parallel()
 	key := "key"
@@ -93,7 +91,7 @@ func TestParseExpression(t *testing.T) {
 		"empty": {
 			"", false, nil, true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, `%s (%q) is not a boolean expression`, key, "")
+				m.EXPECT().Noticef(pp.EmojiUserError, `%s (%q) is not a boolean expression`, key, "")
 			},
 		},
 		"const/1": {"true", true, nil, true, nil},
@@ -102,38 +100,38 @@ func TestParseExpression(t *testing.T) {
 		"&&/2": {
 			"t &&", false, nil, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, `%s (%q) is not a boolean expression`, key, "t &&")
+				m.EXPECT().Noticef(pp.EmojiUserError, `%s (%q) is not a boolean expression`, key, "t &&")
 			},
 		},
 		"&&/&/1": {
 			"true & true", false, nil, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, "true & true", domainexp.ErrSingleAnd)
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, "true & true", domainexp.ErrSingleAnd)
 			},
 		},
 		"&&/&/2": {
 			"true &", false, nil, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, "true &", domainexp.ErrSingleAnd)
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, "true &", domainexp.ErrSingleAnd)
 			},
 		},
 		"||/1": {"F || 1", true, nil, true, nil},
 		"||/2": {
 			"F ||", false, nil, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, `%s (%q) is not a boolean expression`, key, "F ||")
+				m.EXPECT().Noticef(pp.EmojiUserError, `%s (%q) is not a boolean expression`, key, "F ||")
 			},
 		},
 		"||/|/1": {
 			"false | false", false, nil, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, "false | false", domainexp.ErrSingleOr)
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, "false | false", domainexp.ErrSingleOr)
 			},
 		},
 		"||/|/2": {
 			"false |", false, nil, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, "false |", domainexp.ErrSingleOr)
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, "false |", domainexp.ErrSingleOr)
 			},
 		},
 		"is/1":          {"is(example.com)", true, f("example.com"), true, nil},
@@ -148,25 +146,26 @@ func TestParseExpression(t *testing.T) {
 		"is/error/1": {
 			"is)", false, nil, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, `%s (%q) has unexpected token %q when %q is expected`, key, "is)", ")", "(")
+				m.EXPECT().Noticef(pp.EmojiUserError, `%s (%q) has unexpected token %q when %q is expected`, key, "is)", ")", "(")
 			},
 		},
 		"is/error/2": {
 			"is(&&", false, nil, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, `%s (%q) has unexpected token %q`, key, "is(&&", "&&")
+				m.EXPECT().Noticef(pp.EmojiUserError, `%s (%q) has unexpected token %q`, key, "is(&&", "&&")
 			},
 		},
 		"is/error/3": {
 			"is", false, nil, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, `%s (%q) is missing %q at the end`, key, "is", "(")
+				m.EXPECT().Noticef(pp.EmojiUserError, `%s (%q) is missing %q at the end`, key, "is", "(")
 			},
 		},
 		"sub/1":     {"sub(example.com)", true, f("example.com"), false, nil},
 		"sub/2":     {"sub(example.com)", true, w("example.com"), true, nil},
 		"sub/3":     {"sub(example.com)", true, f("sub.example.com"), true, nil},
 		"sub/4":     {"sub(example.com)", true, f("subexample.com"), false, nil},
+		"sub/5":     {"sub(example.com)", true, f("sub.sub.example.com"), true, nil},
 		"sub/idn/1": {"sub(☕.de)", true, f("www.xn--53h.de"), true, nil},
 		"sub/idn/2": {"sub(Xn--53H.de)", true, f("www.xn--53h.de"), true, nil},
 		"sub/idn/3": {"sub(Xn--53H.de)", true, w("xn--53h.de"), true, nil},
@@ -175,36 +174,35 @@ func TestParseExpression(t *testing.T) {
 		"not/3": {
 			"!(", false, nil, true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a boolean expression", key, "!(")
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a boolean expression", key, "!(")
 			},
 		},
 		"nested/1": {"((true)||(false))&&((false)||(true))", true, nil, true, nil},
 		"nested/2": {
 			"((", false, nil, true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a boolean expression", key, "((")
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a boolean expression", key, "((")
 			},
 		},
 		"nested/3": {
 			"(true", false, nil, true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is missing %q at the end", key, "(true", ")")
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is missing %q at the end", key, "(true", ")")
 			},
 		},
 		"error/extra": {
 			"0 1", false, nil, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) has unexpected token %q", key, "0 1", "1")
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) has unexpected token %q", key, "0 1", "1")
 			},
 		},
 		"utf8/invalid": {
 			"\200\300", false, nil, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, "\200\300", ErrorMatcher{domainexp.ErrUTF8}) //nolint:lll
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, "\200\300", ErrorMatcher{domainexp.ErrUTF8}) //nolint:lll
 			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 

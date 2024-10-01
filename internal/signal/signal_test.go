@@ -16,7 +16,7 @@ import (
 )
 
 //nolint:paralleltest //signals are global
-func TestSleep(t *testing.T) {
+func TestWaitForSignalsUntil(t *testing.T) {
 	for name, tc := range map[string]struct {
 		alarmDelay    time.Duration
 		signalDelay   time.Duration
@@ -24,21 +24,20 @@ func TestSleep(t *testing.T) {
 		expected      bool
 		prepareMockPP func(m *mocks.MockPP)
 	}{
-		"no-signal": {time.Second / 10, 0, 0, true, nil},
+		"no-signal": {time.Second / 10, 0, 0, false, nil},
 		"sigint": {
-			time.Second, time.Second / 10, syscall.SIGINT, false,
+			time.Second, time.Second / 10, syscall.SIGINT, true,
 			func(m *mocks.MockPP) {
 				m.EXPECT().Noticef(pp.EmojiSignal, "Caught signal: %v", syscall.SIGINT)
 			},
 		},
 		"sigterm": {
-			time.Second, time.Second / 10, syscall.SIGTERM, false,
+			time.Second, time.Second / 10, syscall.SIGTERM, true,
 			func(m *mocks.MockPP) {
 				m.EXPECT().Noticef(pp.EmojiSignal, "Caught signal: %v", syscall.SIGTERM)
 			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			mockCtrl := gomock.NewController(t)
 			mockPP := mocks.NewMockPP(mockCtrl)
@@ -58,9 +57,9 @@ func TestSleep(t *testing.T) {
 
 			sig := signal.Setup()
 			go signalSelf()
-			res := sig.Sleep(mockPP, tc.alarmDelay)
+			target := time.Now().Add(tc.alarmDelay)
+			res := sig.WaitForSignalsUntil(mockPP, target)
 			<-done
-			sig.TearDown()
 
 			require.Equal(t, tc.expected, res)
 		})
@@ -78,7 +77,6 @@ func TestNotifyContext(t *testing.T) {
 		"sigint":    {time.Second / 10, syscall.SIGINT},
 		"sigterm":   {time.Second / 10, syscall.SIGTERM},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			done := make(chan struct{}, 1)
 			signalSelf := func(cancel func()) {

@@ -13,5 +13,7 @@ A small, feature-rich, and robust Cloudflare DDNS updater. [Read the full docume
 
 ## Supported Tags
 
-- `latest`: the latest released version
-- `edge`: the latest development version
+- `latest`: the latest stable version
+- `edge`: the development version
+- `X`: the latest stable version whose major version is `X` (e.g. `1`)
+- `X.Y.Z`: a specific stable version

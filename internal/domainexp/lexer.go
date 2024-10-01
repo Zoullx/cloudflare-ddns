@@ -23,7 +23,6 @@ var (
 	ErrUTF8 = errors.New(`invalid UTF-8 string`)
 )
 
-//nolint:funlen
 func splitter(data []byte, atEOF bool) (int, []byte, error) {
 	reader := bytes.NewReader(data)
 	startIndex := 0
@@ -117,7 +116,7 @@ func tokenize(ppfmt pp.PP, key string, input string) ([]string, bool) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		ppfmt.Errorf(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, input, err)
+		ppfmt.Noticef(pp.EmojiUserError, "%s (%q) is ill-formed: %v", key, input, err)
 		return nil, false
 	}
 	return tokens, true

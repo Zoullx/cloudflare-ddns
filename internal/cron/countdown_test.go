@@ -11,6 +11,40 @@ import (
 	"github.com/favonia/cloudflare-ddns/internal/pp"
 )
 
+func TestDescribeIntuitively(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().In(time.Local)
+	nextYear := now.AddDate(1, 0, 0)
+	diffDay := now.AddDate(0, 0, 1)
+	if diffDay.Year() != now.Year() {
+		diffDay = now.AddDate(0, 0, -1)
+	}
+
+	for name, tc := range map[string]struct {
+		time   time.Time
+		output string
+	}{
+		"now": {
+			now,
+			now.Format("15:04"),
+		},
+		"1day": {
+			diffDay,
+			diffDay.Format("02 Jan 15:04"),
+		},
+		"1year": {
+			nextYear,
+			nextYear.Format("02 Jan 15:04 2006"),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.output, cron.DescribeIntuitively(now, tc.time))
+		})
+	}
+}
+
 func TestPrintCountdown(t *testing.T) {
 	t.Parallel()
 
@@ -18,44 +52,61 @@ func TestPrintCountdown(t *testing.T) {
 
 	for _, tc := range [...]struct {
 		interval []time.Duration
-		output   string
+		output   func(string) string
 	}{
 		{
 			[]time.Duration{-20 * time.Second},
-			string(pp.EmojiNow) + " Secretly dancing now (running behind by 20s) . . .\n",
+			func(_ string) string {
+				return string(pp.EmojiNow) + " Secretly dancing now (running behind by 20s) . . .\n"
+			},
 		},
 		{
 			[]time.Duration{-10 * time.Second},
-			string(pp.EmojiNow) + " Secretly dancing now (running behind by 10s) . . .\n",
+			func(_ string) string {
+				return string(pp.EmojiNow) + " Secretly dancing now (running behind by 10s) . . .\n"
+			},
 		},
 		{
 			[]time.Duration{-time.Second, -time.Nanosecond, 0, time.Nanosecond},
-			string(pp.EmojiNow) + " Secretly dancing now . . .\n",
+			func(_ string) string {
+				return string(pp.EmojiNow) + " Secretly dancing now . . .\n"
+			},
 		},
 		{
-			[]time.Duration{time.Second},
-			string(pp.EmojiAlarm) + " Secretly dancing in less than 5s . . .\n",
+			[]time.Duration{2 * time.Second},
+			func(_ string) string {
+				return string(pp.EmojiAlarm) + " Secretly dancing in less than 5s . . .\n"
+			},
 		},
 		{
 			[]time.Duration{10 * time.Second},
-			string(pp.EmojiAlarm) + " Secretly dancing in about 10s . . .\n",
+			func(_ string) string {
+				return string(pp.EmojiAlarm) + " Secretly dancing in about 10s . . .\n"
+			},
 		},
 		{
 			[]time.Duration{20 * time.Second},
-			string(pp.EmojiAlarm) + " Secretly dancing in about 20s . . .\n",
+			func(_ string) string {
+				return string(pp.EmojiAlarm) + " Secretly dancing in about 20s . . .\n"
+			},
+		},
+		{
+			[]time.Duration{20 * time.Minute},
+			func(t string) string {
+				return string(pp.EmojiAlarm) + " Secretly dancing in about 20m0s (" + t + ") . . .\n"
+			},
 		},
 	} {
-		tc := tc
 		for _, interval := range tc.interval {
-			interval := interval
 			t.Run(interval.String(), func(t *testing.T) {
 				t.Parallel()
 				var buf strings.Builder
-				pp := pp.New(&buf)
+				pp := pp.NewDefault(&buf)
 
-				cron.PrintCountdown(pp, activity, interval)
-
-				require.Equal(t, tc.output, buf.String())
+				now := time.Now()
+				target := now.Add(interval)
+				cron.PrintCountdown(pp, activity, now, target)
+				require.Equal(t, tc.output(cron.DescribeIntuitively(now, target)), buf.String())
 			})
 		}
 	}

@@ -5,184 +5,194 @@ package updater
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/netip"
-	"strings"
 
 	"github.com/favonia/cloudflare-ddns/internal/config"
-	"github.com/favonia/cloudflare-ddns/internal/domain"
 	"github.com/favonia/cloudflare-ddns/internal/ipnet"
 	"github.com/favonia/cloudflare-ddns/internal/pp"
+	"github.com/favonia/cloudflare-ddns/internal/provider"
 	"github.com/favonia/cloudflare-ddns/internal/setter"
 )
 
-// ShouldDisplayHints determines whether help messages should be displayed.
-// The help messages are to help beginners detect possible misconfiguration.
-// These messages should be displayed at most once, and thus the value of this map
-// will be changed to false after displaying the help messages.
-//
-//nolint:gochecknoglobals
-var ShouldDisplayHints = map[string]bool{
-	"detect-ip4-fail": true,
-	"detect-ip6-fail": true,
-	"update-timeout":  true,
-}
-
-func getHintIDForDetection(ipNet ipnet.Type) string {
-	return map[ipnet.Type]string{
-		ipnet.IP4: "detect-ip4-fail",
-		ipnet.IP6: "detect-ip6-fail",
+func getHintIDForDetection(ipNet ipnet.Type) pp.Hint {
+	return map[ipnet.Type]pp.Hint{
+		ipnet.IP4: pp.HintIP4DetectionFails,
+		ipnet.IP6: pp.HintIP6DetectionFails,
 	}[ipNet]
 }
 
-func getProxied(ppfmt pp.PP, c *config.Config, domain domain.Domain) bool {
-	if proxied, ok := c.Proxied[domain]; ok {
-		return proxied
-	}
+func detectIP(ctx context.Context, ppfmt pp.PP, c *config.Config, ipNet ipnet.Type) (netip.Addr, Message) {
+	ctx, cancel := context.WithTimeoutCause(ctx, c.DetectionTimeout, errTimeout)
+	defer cancel()
 
-	ppfmt.Warningf(pp.EmojiImpossible,
-		"Proxied[%s] not initialized; this should not happen; please report the bug at https://github.com/favonia/cloudflare-ddns/issues/new", //nolint:lll
-		domain.Describe(),
-	)
-	return false
+	ip, method, ok := c.Provider[ipNet].GetIP(ctx, ppfmt, ipNet)
+
+	if ok {
+		switch method {
+		case provider.MethodAlternative:
+			ppfmt.Infof(pp.EmojiInternet, "Detected the %s address %v (using 1.0.0.1)", ipNet.Describe(), ip)
+			provider.Hint1111Blockage(ppfmt)
+		default:
+			ppfmt.Infof(pp.EmojiInternet, "Detected the %s address %v", ipNet.Describe(), ip)
+		}
+		ppfmt.SuppressHint(getHintIDForDetection(ipNet))
+	} else {
+		ppfmt.Noticef(pp.EmojiError, "Failed to detect the %s address", ipNet.Describe())
+
+		switch ipNet {
+		case ipnet.IP6:
+			ppfmt.Hintf(getHintIDForDetection(ipNet),
+				"If you are using Docker or Kubernetes, IPv6 might need extra setup. Read more at %s. "+
+					"If your network doesn't support IPv6, you can turn it off by setting IP6_PROVIDER=none",
+				pp.ManualURL)
+
+		case ipnet.IP4:
+			ppfmt.Hintf(getHintIDForDetection(ipNet),
+				"If your network does not support IPv4, you can disable it with IP4_PROVIDER=none")
+		}
+
+		if errors.Is(context.Cause(ctx), errTimeout) {
+			ppfmt.Hintf(pp.HintDetectionTimeouts,
+				"If your network is experiencing high latency, consider increasing DETECTION_TIMEOUT=%v",
+				c.DetectionTimeout,
+			)
+		}
+	}
+	return ip, generateDetectMessage(ipNet, ok)
 }
 
-var errSettingTimeout = errors.New("setting timeout")
+var errTimeout = errors.New("timeout")
+
+func wrapUpdateWithTimeout(ctx context.Context, ppfmt pp.PP, c *config.Config,
+	f func(context.Context) setter.ResponseCode,
+) setter.ResponseCode {
+	ctx, cancel := context.WithTimeoutCause(ctx, c.UpdateTimeout, errTimeout)
+	defer cancel()
+
+	resp := f(ctx)
+	if resp == setter.ResponseFailed {
+		if errors.Is(context.Cause(ctx), errTimeout) {
+			ppfmt.Hintf(pp.HintUpdateTimeouts,
+				"If your network is experiencing high latency, consider increasing UPDATE_TIMEOUT=%v",
+				c.UpdateTimeout,
+			)
+		}
+	}
+	return resp
+}
 
 // setIP extracts relevant settings from the configuration and calls [setter.Setter.Set] with timeout.
 // ip must be non-zero.
 func setIP(ctx context.Context, ppfmt pp.PP,
 	c *config.Config, s setter.Setter, ipNet ipnet.Type, ip netip.Addr,
-) (bool, []string) {
-	allOk := true
-
-	// [msgs[false]] collects all the error messages and [msgs[true]] collects all the success messages.
-	msgs := map[bool][]string{}
+) Message {
+	resps := emptySetterResponses()
 
 	for _, domain := range c.Domains[ipNet] {
-		ctx, cancel := context.WithTimeoutCause(ctx, c.UpdateTimeout, errSettingTimeout)
-		defer cancel()
-
-		resp := s.Set(ctx, ppfmt, domain, ipNet, ip, c.TTL, getProxied(ppfmt, c, domain))
-		switch resp {
-		case setter.ResponseUpdatesApplied:
-			msgs[true] = append(msgs[true], fmt.Sprintf("Set %s %s to %s", domain.Describe(), ipNet.RecordType(), ip.String()))
-		case setter.ResponseUpdatesFailed:
-			allOk = false
-			msgs[false] = append(msgs[false], fmt.Sprintf("Failed to set %s %s", domain.Describe(), ipNet.RecordType()))
-			if ShouldDisplayHints["update-timeout"] && errors.Is(context.Cause(ctx), errSettingTimeout) {
-				ppfmt.Infof(pp.EmojiHint,
-					"If your network is working but with high latency, consider increasing the value of UPDATE_TIMEOUT",
-				)
-				ShouldDisplayHints["update-timeout"] = false
-			}
-		case setter.ResponseNoUpdatesNeeded:
-		}
+		resps.register(domain,
+			wrapUpdateWithTimeout(ctx, ppfmt, c, func(ctx context.Context) setter.ResponseCode {
+				return s.Set(ctx, ppfmt, ipNet, domain, ip, c.TTL, c.Proxied[domain], c.RecordComment)
+			}),
+		)
 	}
 
-	return allOk, msgs[allOk]
+	return generateUpdateMessage(ipNet, ip, resps)
 }
 
-// deleteIP extracts relevant settings from the configuration and calls [setter.Setter.Clear] with a deadline.
-func deleteIP(ctx context.Context, ppfmt pp.PP, c *config.Config, s setter.Setter, ipNet ipnet.Type) (bool, []string) {
-	allOk := true
-
-	// [msgs[false]] collects all the error messages and [msgs[true]] collects all the success messages.
-	msgs := map[bool][]string{}
+// finalDeleteIP extracts relevant settings from the configuration
+// and calls [setter.Setter.FinalDelete] with a deadline.
+func finalDeleteIP(ctx context.Context, ppfmt pp.PP, c *config.Config, s setter.Setter, ipNet ipnet.Type) Message {
+	resps := emptySetterResponses()
 
 	for _, domain := range c.Domains[ipNet] {
-		ctx, cancel := context.WithTimeout(ctx, c.UpdateTimeout)
-		defer cancel()
-
-		resp := s.Delete(ctx, ppfmt, domain, ipNet)
-		switch resp {
-		case setter.ResponseUpdatesApplied:
-			msgs[true] = append(msgs[true], fmt.Sprintf("Deleted %s %s", domain.Describe(), ipNet.RecordType()))
-		case setter.ResponseUpdatesFailed:
-			allOk = false
-			msgs[false] = append(msgs[false], fmt.Sprintf("Failed to delete %s %s", domain.Describe(), ipNet.RecordType()))
-		case setter.ResponseNoUpdatesNeeded:
-		}
+		resps.register(domain,
+			wrapUpdateWithTimeout(ctx, ppfmt, c, func(ctx context.Context) setter.ResponseCode {
+				return s.FinalDelete(ctx, ppfmt, ipNet, domain)
+			}),
+		)
 	}
 
-	return allOk, msgs[allOk]
+	return generateFinalDeleteMessage(ipNet, resps)
 }
 
-func detectIP(ctx context.Context, ppfmt pp.PP,
-	c *config.Config, ipNet ipnet.Type, use1001 bool,
-) (netip.Addr, bool, []string) {
-	ctx, cancel := context.WithTimeout(ctx, c.DetectionTimeout)
-	defer cancel()
+// setWAFList extracts relevant settings from the configuration and calls [setter.Setter.SetWAFList] with timeout.
+func setWAFLists(ctx context.Context, ppfmt pp.PP,
+	c *config.Config, s setter.Setter, detectedIP map[ipnet.Type]netip.Addr,
+) Message {
+	resps := emptySetterWAFListResponses()
 
-	var msgs []string
-	ip, ok := c.Provider[ipNet].GetIP(ctx, ppfmt, ipNet, use1001)
-	if ok {
-		ppfmt.Infof(pp.EmojiInternet, "Detected the %s address: %v", ipNet.Describe(), ip)
-	} else {
-		msg := fmt.Sprintf("Failed to detect the %s address", ipNet.Describe())
-		msgs = append(msgs, msg)
-		ppfmt.Errorf(pp.EmojiError, "%s", msg)
-		if ShouldDisplayHints[getHintIDForDetection(ipNet)] {
-			switch ipNet {
-			case ipnet.IP6:
-				ppfmt.Infof(pp.EmojiHint, "If you are using Docker or Kubernetes, IPv6 often requires additional setups")     //nolint:lll
-				ppfmt.Infof(pp.EmojiHint, "Read more about IPv6 networks at https://github.com/favonia/cloudflare-ddns")      //nolint:lll
-				ppfmt.Infof(pp.EmojiHint, "If your network does not support IPv6, you can disable it with IP6_PROVIDER=none") //nolint:lll
-			case ipnet.IP4:
-				ppfmt.Infof(pp.EmojiHint, "If your network does not support IPv4, you can disable it with IP4_PROVIDER=none") //nolint:lll
-			}
-		}
+	for _, l := range c.WAFLists {
+		resps.register(l.Describe(),
+			wrapUpdateWithTimeout(ctx, ppfmt, c, func(ctx context.Context) setter.ResponseCode {
+				return s.SetWAFList(ctx, ppfmt, l, c.WAFListDescription, detectedIP, "")
+			}),
+		)
 	}
-	ShouldDisplayHints[getHintIDForDetection(ipNet)] = false
-	return ip, ok, msgs
+
+	return generateUpdateWAFListsMessage(resps)
+}
+
+// finalClearWAFLists extracts relevant settings from the configuration
+// and calls [setter.Setter.ClearWAFList] with a deadline.
+func finalClearWAFLists(ctx context.Context, ppfmt pp.PP, c *config.Config, s setter.Setter) Message {
+	resps := emptySetterWAFListResponses()
+
+	for _, l := range c.WAFLists {
+		resps.register(l.Describe(),
+			wrapUpdateWithTimeout(ctx, ppfmt, c, func(ctx context.Context) setter.ResponseCode {
+				return s.FinalClearWAFList(ctx, ppfmt, l, c.WAFListDescription)
+			}),
+		)
+	}
+
+	return generateFinalClearWAFListsMessage(resps)
 }
 
 // UpdateIPs detect IP addresses and update DNS records of managed domains.
-func UpdateIPs(ctx context.Context, ppfmt pp.PP, c *config.Config, s setter.Setter) (bool, string) {
-	allOk := true
+func UpdateIPs(ctx context.Context, ppfmt pp.PP, c *config.Config, s setter.Setter) Message {
+	var msgs []Message
+	detectedIP := map[ipnet.Type]netip.Addr{}
+	numManagedNetworks := 0
+	numValidIPs := 0
+	for ipNet, provider := range ipnet.Bindings(c.Provider) {
+		if provider != nil {
+			numManagedNetworks++
+			ip, msg := detectIP(ctx, ppfmt, c, ipNet)
+			detectedIP[ipNet] = ip
+			msgs = append(msgs, msg)
 
-	// [msgs[false]] collects all the error messages and [msgs[true]] collects all the success messages.
-	msgs := map[bool][]string{}
-
-	for _, ipNet := range [...]ipnet.Type{ipnet.IP4, ipnet.IP6} {
-		if c.Provider[ipNet] != nil {
-			ip, ok, msg := detectIP(ctx, ppfmt, c, ipNet, c.Use1001)
-			msgs[ok] = append(msgs[ok], msg...)
-			if !ok {
-				// We can't detect the new IP address. It's probably better to leave existing IP addresses alone.
-				allOk = false
-				continue
+			// Note: If we can't detect the new IP address,
+			// it's probably better to leave existing records alone.
+			if msg.MonitorMessage.OK {
+				numValidIPs++
+				msgs = append(msgs, setIP(ctx, ppfmt, c, s, ipNet, ip))
 			}
-
-			ok, msg = setIP(ctx, ppfmt, c, s, ipNet, ip)
-			msgs[ok] = append(msgs[ok], msg...)
-			allOk = allOk && ok
 		}
 	}
 
-	var allMsg string
-	if len(msgs[false]) != 0 {
-		allMsg = strings.Join(msgs[false], "\n")
-	} else {
-		allMsg = strings.Join(msgs[true], "\n")
+	// Close all idle connections after the IP detection
+	provider.CloseIdleConnections()
+
+	// Update WAF lists
+	if !(numManagedNetworks == 2 && numValidIPs == 0) {
+		msgs = append(msgs, setWAFLists(ctx, ppfmt, c, s, detectedIP))
 	}
-	return allOk, allMsg
+
+	return MergeMessages(msgs...)
 }
 
-// DeleteIPs removes all DNS records of managed domains.
-func DeleteIPs(ctx context.Context, ppfmt pp.PP, c *config.Config, s setter.Setter) (bool, string) {
-	allOk := true
+// FinalDeleteIPs removes all DNS records of managed domains.
+func FinalDeleteIPs(ctx context.Context, ppfmt pp.PP, c *config.Config, s setter.Setter) Message {
+	var msgs []Message
 
-	// [msgs[false]] collects all the error messages and [msgs[true]] collects all the success messages.
-	msgs := map[bool][]string{}
-
-	for _, ipNet := range [...]ipnet.Type{ipnet.IP4, ipnet.IP6} {
-		if c.Provider[ipNet] != nil {
-			ok, msg := deleteIP(ctx, ppfmt, c, s, ipNet)
-			allOk = allOk && ok
-			msgs[ok] = append(msgs[ok], msg...)
+	for ipNet, provider := range ipnet.Bindings(c.Provider) {
+		if provider != nil {
+			msgs = append(msgs, finalDeleteIP(ctx, ppfmt, c, s, ipNet))
 		}
 	}
 
-	return allOk, strings.Join(msgs[allOk], "\n")
+	// Clear WAF lists
+	msgs = append(msgs, finalClearWAFLists(ctx, ppfmt, c, s))
+
+	return MergeMessages(msgs...)
 }

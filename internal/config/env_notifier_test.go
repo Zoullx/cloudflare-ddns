@@ -12,7 +12,7 @@ import (
 	"github.com/favonia/cloudflare-ddns/internal/pp"
 )
 
-//nolint:paralleltest,funlen // paralleltest should not be used because environment vars are global
+//nolint:paralleltest // paralleltest should not be used because environment vars are global
 func TestReadAndAppendShoutrrrURL(t *testing.T) {
 	key := keyPrefix + "SHOUTRRR"
 
@@ -21,69 +21,77 @@ func TestReadAndAppendShoutrrrURL(t *testing.T) {
 	for name, tc := range map[string]struct {
 		set           bool
 		val           string
-		oldField      []not
-		newField      func(*testing.T, []not)
+		oldField      not
+		newField      func(*testing.T, not)
 		ok            bool
 		prepareMockPP func(*mocks.MockPP)
 	}{
 		"unset": {
 			false, "", nil,
-			func(t *testing.T, ns []not) {
+			func(t *testing.T, n not) {
 				t.Helper()
-				require.Nil(t, ns)
-			},
-			true, nil,
-		},
-		"empty": {
-			true, "", nil,
-			func(t *testing.T, ns []not) {
-				t.Helper()
-				require.Nil(t, ns)
-			},
-			true, nil,
-		},
-		"generic": {
-			true, "generic+https://example.com/api/v1/postStuff",
-			nil,
-			func(t *testing.T, ns []not) {
-				t.Helper()
-				require.Len(t, ns, 1)
-				m := ns[0]
-				s, ok := m.(*notifier.Shoutrrr)
-				require.True(t, ok)
-				require.Equal(t, []string{"generic"}, s.ServiceNames)
+				require.Nil(t, n)
 			},
 			true,
 			nil,
 		},
+		"empty": {
+			true, "", nil,
+			func(t *testing.T, n not) {
+				t.Helper()
+				require.Nil(t, n)
+			},
+			true,
+			nil,
+		},
+		"generic": {
+			true, "generic+https://example.com/api/v1/postStuff",
+			nil,
+			func(t *testing.T, n not) {
+				t.Helper()
+				ns, ok := n.(notifier.Composed)
+				require.True(t, ok)
+				require.Len(t, ns, 1)
+				s, ok := ns[0].(notifier.Shoutrrr)
+				require.True(t, ok)
+				require.Equal(t, []string{"Generic"}, s.ServiceDescriptions)
+			},
+			true,
+			func(m *mocks.MockPP) {
+				m.EXPECT().Hintf(pp.HintExperimentalShoutrrr, "You are using the experimental shoutrrr support added in version 1.12.0") //nolint:lll
+			},
+		},
 		"ill-formed": {
 			true, "meow-meow-meow://cute",
 			nil,
-			func(t *testing.T, ns []not) {
+			func(t *testing.T, n not) {
 				t.Helper()
-				require.Nil(t, ns)
+				require.Nil(t, n)
 			},
 			false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, `Could not create shoutrrr client: %v`, gomock.Any())
+				m.EXPECT().Hintf(pp.HintExperimentalShoutrrr, "You are using the experimental shoutrrr support added in version 1.12.0") //nolint:lll
+				m.EXPECT().Noticef(pp.EmojiUserError, `Could not create shoutrrr client: %v`, gomock.Any())
 			},
 		},
 		"multiple": {
 			true, "generic+https://example.com/api/v1/postStuff\npushover://shoutrrr:token@userKey",
 			nil,
-			func(t *testing.T, ns []not) {
+			func(t *testing.T, n not) {
 				t.Helper()
-				require.Len(t, ns, 1)
-				m := ns[0]
-				s, ok := m.(*notifier.Shoutrrr)
+				ns, ok := n.(notifier.Composed)
 				require.True(t, ok)
-				require.Equal(t, []string{"generic", "pushover"}, s.ServiceNames)
+				require.Len(t, ns, 1)
+				s, ok := ns[0].(notifier.Shoutrrr)
+				require.True(t, ok)
+				require.Equal(t, []string{"Generic", "Pushover"}, s.ServiceDescriptions)
 			},
 			true,
-			nil,
+			func(m *mocks.MockPP) {
+				m.EXPECT().Hintf(pp.HintExperimentalShoutrrr, "You are using the experimental shoutrrr support added in version 1.12.0") //nolint:lll
+			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			set(t, key, tc.set, tc.val)
 			field := tc.oldField

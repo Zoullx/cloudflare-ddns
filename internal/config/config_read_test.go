@@ -9,7 +9,6 @@ import (
 
 	"github.com/favonia/cloudflare-ddns/internal/api"
 	"github.com/favonia/cloudflare-ddns/internal/config"
-	"github.com/favonia/cloudflare-ddns/internal/cron"
 	"github.com/favonia/cloudflare-ddns/internal/domain"
 	"github.com/favonia/cloudflare-ddns/internal/ipnet"
 	"github.com/favonia/cloudflare-ddns/internal/mocks"
@@ -20,15 +19,18 @@ import (
 func unsetAll(t *testing.T) {
 	t.Helper()
 	unset(t,
+		"CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_TOKEN_FILE",
 		"CF_API_TOKEN", "CF_API_TOKEN_FILE", "CF_ACCOUNT_ID",
 		"IP4_PROVIDER", "IP6_PROVIDER",
-		"DOMAINS", "IP4_DOMAINS", "IP6_DOMAINS",
+		"DOMAINS", "IP4_DOMAINS", "IP6_DOMAINS", "WAF_LISTS",
 		"UPDATE_CRON",
 		"UPDATE_ON_START",
 		"DELETE_ON_STOP",
 		"CACHE_EXPIRATION",
 		"TTL",
 		"PROXIED",
+		"RECORD_COMMENT",
+		"WAF_LIST_DESCRIPTION",
 		"DETECTION_TIMEOUT",
 		"UPDATE_TIMEOUT",
 		"HEALTHCHECKS",
@@ -42,15 +44,15 @@ func TestReadEnvWithOnlyToken(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
 
 	unsetAll(t)
-	store(t, "CF_API_TOKEN", "deadbeaf")
+	store(t, "CLOUDFLARE_API_TOKEN", "deadbeaf")
 
 	var cfg config.Config
 	mockPP := mocks.NewMockPP(mockCtrl)
 	innerMockPP := mocks.NewMockPP(mockCtrl)
 	gomock.InOrder(
-		mockPP.EXPECT().IsEnabledFor(pp.Info).Return(true),
+		mockPP.EXPECT().IsShowing(pp.Info).Return(true),
 		mockPP.EXPECT().Infof(pp.EmojiEnvVars, "Reading settings . . ."),
-		mockPP.EXPECT().IncIndent().Return(innerMockPP),
+		mockPP.EXPECT().Indent().Return(innerMockPP),
 		innerMockPP.EXPECT().Infof(pp.EmojiBullet, "Use default %s=%s", "IP4_PROVIDER", "none"),
 		innerMockPP.EXPECT().Infof(pp.EmojiBullet, "Use default %s=%s", "IP6_PROVIDER", "none"),
 		innerMockPP.EXPECT().Infof(pp.EmojiBullet, "Use default %s=%s", "UPDATE_CRON", "@once"),
@@ -58,7 +60,6 @@ func TestReadEnvWithOnlyToken(t *testing.T) {
 		innerMockPP.EXPECT().Infof(pp.EmojiBullet, "Use default %s=%t", "DELETE_ON_STOP", false),
 		innerMockPP.EXPECT().Infof(pp.EmojiBullet, "Use default %s=%v", "CACHE_EXPIRATION", time.Duration(0)),
 		innerMockPP.EXPECT().Infof(pp.EmojiBullet, "Use default %s=%d", "TTL", api.TTL(0)),
-		innerMockPP.EXPECT().Infof(pp.EmojiBullet, "Use default %s=%s", "PROXIED", ""),
 		innerMockPP.EXPECT().Infof(pp.EmojiBullet, "Use default %s=%v", "DETECTION_TIMEOUT", time.Duration(0)),
 		innerMockPP.EXPECT().Infof(pp.EmojiBullet, "Use default %s=%v", "UPDATE_TIMEOUT", time.Duration(0)),
 	)
@@ -76,21 +77,20 @@ func TestReadEnvEmpty(t *testing.T) {
 	mockPP := mocks.NewMockPP(mockCtrl)
 	innerMockPP := mocks.NewMockPP(mockCtrl)
 	gomock.InOrder(
-		mockPP.EXPECT().IsEnabledFor(pp.Info).Return(true),
+		mockPP.EXPECT().IsShowing(pp.Info).Return(true),
 		mockPP.EXPECT().Infof(pp.EmojiEnvVars, "Reading settings . . ."),
-		mockPP.EXPECT().IncIndent().Return(innerMockPP),
-		innerMockPP.EXPECT().Errorf(pp.EmojiUserError, "Needs either CF_API_TOKEN or CF_API_TOKEN_FILE"),
+		mockPP.EXPECT().Indent().Return(innerMockPP),
+		innerMockPP.EXPECT().Noticef(pp.EmojiUserError,
+			"Needs either %s or %s", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_TOKEN_FILE"),
 	)
 	ok := cfg.ReadEnv(mockPP)
 	require.False(t, ok)
 }
 
-//nolint:funlen
-func TestNormalizeConfig(t *testing.T) {
+func TestNormalize(t *testing.T) {
 	t.Parallel()
 
 	keyProxied := "PROXIED"
-	var empty config.Config
 
 	for name, tc := range map[string]struct {
 		input         *config.Config
@@ -98,57 +98,83 @@ func TestNormalizeConfig(t *testing.T) {
 		expected      *config.Config
 		prepareMockPP func(m *mocks.MockPP)
 	}{
-		"nil": {
-			input:    &empty,
-			ok:       false,
-			expected: &empty,
-			prepareMockPP: func(m *mocks.MockPP) {
-				gomock.InOrder(
-					m.EXPECT().IsEnabledFor(pp.Info).Return(true),
-					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
-					m.EXPECT().IncIndent().Return(m),
-					m.EXPECT().Errorf(pp.EmojiUserError, "UPDATE_ON_START=false is incompatible with UPDATE_CRON=@once"),
-				)
-			},
-		},
-		"empty/1": {
+		"nothing-to-do": {
 			input: &config.Config{ //nolint:exhaustruct
-				Domains: map[ipnet.Type][]domain.Domain{
-					ipnet.IP4: {},
-					ipnet.IP6: {},
-				},
 			},
 			ok:       false,
 			expected: nil,
 			prepareMockPP: func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().IsEnabledFor(pp.Info).Return(true),
+					m.EXPECT().IsShowing(pp.Info).Return(true),
 					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
-					m.EXPECT().IncIndent().Return(m),
-					m.EXPECT().Errorf(pp.EmojiUserError, "UPDATE_ON_START=false is incompatible with UPDATE_CRON=@once"),
+					m.EXPECT().Indent().Return(m),
+					m.EXPECT().Noticef(pp.EmojiUserError, "Nothing was specified in DOMAINS, IP4_DOMAINS, IP6_DOMAINS, or WAF_LISTS"),
 				)
 			},
 		},
-		"empty/2": {
+		"once/update-on-start": {
+			input: &config.Config{ //nolint:exhaustruct
+				Domains: map[ipnet.Type][]domain.Domain{
+					ipnet.IP4: {domain.FQDN("a.b.c")},
+				},
+				UpdateOnStart: false,
+			},
+			ok:       false,
+			expected: nil,
+			prepareMockPP: func(m *mocks.MockPP) {
+				gomock.InOrder(
+					m.EXPECT().IsShowing(pp.Info).Return(true),
+					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
+					m.EXPECT().Indent().Return(m),
+					m.EXPECT().Noticef(pp.EmojiUserError, "UPDATE_ON_START=false is incompatible with UPDATE_CRON=@once"),
+				)
+			},
+		},
+		"once/delete-on-stop": {
+			input: &config.Config{ //nolint:exhaustruct
+				Domains: map[ipnet.Type][]domain.Domain{
+					ipnet.IP4: {domain.FQDN("a.b.c")},
+				},
+				DeleteOnStop:  true,
+				UpdateOnStart: true,
+			},
+			ok:       false,
+			expected: nil,
+			prepareMockPP: func(m *mocks.MockPP) {
+				gomock.InOrder(
+					m.EXPECT().IsShowing(pp.Info).Return(true),
+					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
+					m.EXPECT().Indent().Return(m),
+					m.EXPECT().Noticef(pp.EmojiUserError, "DELETE_ON_STOP=true will immediately delete all domains and WAF lists when UPDATE_CRON=@once"), //nolint:lll
+				)
+			},
+		},
+		"nilprovider": {
 			input: &config.Config{ //nolint:exhaustruct
 				UpdateOnStart: true,
-				Domains: map[ipnet.Type][]domain.Domain{
-					ipnet.IP4: {},
-					ipnet.IP6: {},
+				Provider: map[ipnet.Type]provider.Provider{
+					ipnet.IP4: nil,
+					ipnet.IP6: nil,
 				},
+				Domains: map[ipnet.Type][]domain.Domain{
+					ipnet.IP4: {domain.FQDN("a.b.c")},
+				},
+				ProxiedTemplate: "false",
 			},
 			ok:       false,
 			expected: nil,
 			prepareMockPP: func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().IsEnabledFor(pp.Info).Return(true),
+					m.EXPECT().IsShowing(pp.Info).Return(true),
 					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
-					m.EXPECT().IncIndent().Return(m),
-					m.EXPECT().Errorf(pp.EmojiUserError, "No domains were specified in DOMAINS, IP4_DOMAINS, or IP6_DOMAINS"),
+					m.EXPECT().Indent().Return(m),
+					m.EXPECT().Noticef(pp.EmojiUserError,
+						"Nothing to update because both IP4_PROVIDER and IP6_PROVIDER are %q",
+						"none"),
 				)
 			},
 		},
-		"empty-ip6": {
+		"dns6empty": {
 			input: &config.Config{ //nolint:exhaustruct
 				UpdateOnStart: true,
 				Provider: map[ipnet.Type]provider.Provider{
@@ -157,9 +183,9 @@ func TestNormalizeConfig(t *testing.T) {
 				},
 				Domains: map[ipnet.Type][]domain.Domain{
 					ipnet.IP4: {domain.FQDN("a.b.c")},
-					ipnet.IP6: {},
 				},
-				ProxiedTemplate: "false",
+				ProxiedTemplate:  "false",
+				DetectionTimeout: 5 * time.Second,
 			},
 			ok: true,
 			expected: &config.Config{ //nolint:exhaustruct
@@ -169,25 +195,25 @@ func TestNormalizeConfig(t *testing.T) {
 				},
 				Domains: map[ipnet.Type][]domain.Domain{
 					ipnet.IP4: {domain.FQDN("a.b.c")},
-					ipnet.IP6: {},
 				},
 				ProxiedTemplate: "false",
 				Proxied: map[domain.Domain]bool{
 					domain.FQDN("a.b.c"): false,
 				},
+				DetectionTimeout: 5 * time.Second,
 			},
 			prepareMockPP: func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().IsEnabledFor(pp.Info).Return(true),
+					m.EXPECT().IsShowing(pp.Info).Return(true),
 					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
-					m.EXPECT().IncIndent().Return(m),
-					m.EXPECT().Warningf(pp.EmojiUserWarning,
-						"IP%d_PROVIDER was changed to %q because no domains were set for %s",
+					m.EXPECT().Indent().Return(m),
+					m.EXPECT().Noticef(pp.EmojiUserWarning,
+						"IP%d_PROVIDER was changed to %q because no domains or WAF lists use %s",
 						6, "none", "IPv6"),
 				)
 			},
 		},
-		"empty-ip6-none-ip4": {
+		"dns6empty-ip4none": {
 			input: &config.Config{ //nolint:exhaustruct
 				UpdateOnStart: true,
 				Provider: map[ipnet.Type]provider.Provider{
@@ -195,26 +221,25 @@ func TestNormalizeConfig(t *testing.T) {
 				},
 				Domains: map[ipnet.Type][]domain.Domain{
 					ipnet.IP4: {domain.FQDN("a.b.c")},
-					ipnet.IP6: {},
 				},
 			},
 			ok:       false,
 			expected: nil,
 			prepareMockPP: func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().IsEnabledFor(pp.Info).Return(true),
+					m.EXPECT().IsShowing(pp.Info).Return(true),
 					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
-					m.EXPECT().IncIndent().Return(m),
-					m.EXPECT().Warningf(pp.EmojiUserWarning,
-						"IP%d_PROVIDER was changed to %q because no domains were set for %s",
+					m.EXPECT().Indent().Return(m),
+					m.EXPECT().Noticef(pp.EmojiUserWarning,
+						"IP%d_PROVIDER was changed to %q because no domains or WAF lists use %s",
 						6, "none", "IPv6"),
-					m.EXPECT().Errorf(pp.EmojiUserError,
+					m.EXPECT().Noticef(pp.EmojiUserError,
 						"Nothing to update because both IP4_PROVIDER and IP6_PROVIDER are %q",
 						"none"),
 				)
 			},
 		},
-		"ignored-ip4-domains": {
+		"ip4none": {
 			input: &config.Config{ //nolint:exhaustruct
 				UpdateOnStart: true,
 				Provider: map[ipnet.Type]provider.Provider{
@@ -224,7 +249,8 @@ func TestNormalizeConfig(t *testing.T) {
 					ipnet.IP4: {domain.FQDN("a.b.c"), domain.FQDN("d.e.f")},
 					ipnet.IP6: {domain.FQDN("a.b.c"), domain.FQDN("g.h.i")},
 				},
-				ProxiedTemplate: "false",
+				ProxiedTemplate:  "false",
+				DetectionTimeout: 5 * time.Second,
 			},
 			ok: true,
 			expected: &config.Config{ //nolint:exhaustruct
@@ -241,19 +267,107 @@ func TestNormalizeConfig(t *testing.T) {
 					domain.FQDN("a.b.c"): false,
 					domain.FQDN("g.h.i"): false,
 				},
+				DetectionTimeout: 5 * time.Second,
 			},
 			prepareMockPP: func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().IsEnabledFor(pp.Info).Return(true),
+					m.EXPECT().IsShowing(pp.Info).Return(true),
 					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
-					m.EXPECT().IncIndent().Return(m),
-					m.EXPECT().Warningf(pp.EmojiUserWarning,
+					m.EXPECT().Indent().Return(m),
+					m.EXPECT().Noticef(pp.EmojiUserWarning,
 						"Domain %q is ignored because it is only for %s but %s is disabled",
 						"d.e.f", "IPv4", "IPv4"),
 				)
 			},
 		},
-		"template": {
+		"ignored/dns": {
+			input: &config.Config{ //nolint:exhaustruct
+				UpdateOnStart: true,
+				Provider: map[ipnet.Type]provider.Provider{
+					ipnet.IP6: provider.NewCloudflareTrace(),
+				},
+				Domains:          map[ipnet.Type][]domain.Domain{},
+				WAFLists:         []api.WAFList{{AccountID: "account", Name: "list"}},
+				TTL:              10000,
+				ProxiedTemplate:  "true",
+				RecordComment:    "hello",
+				DetectionTimeout: 5 * time.Second,
+			},
+			ok: true,
+			expected: &config.Config{ //nolint:exhaustruct
+				UpdateOnStart: true,
+				Provider: map[ipnet.Type]provider.Provider{
+					ipnet.IP6: provider.NewCloudflareTrace(),
+				},
+				Domains:          map[ipnet.Type][]domain.Domain{},
+				WAFLists:         []api.WAFList{{AccountID: "account", Name: "list"}},
+				TTL:              10000,
+				ProxiedTemplate:  "true",
+				Proxied:          map[domain.Domain]bool{},
+				RecordComment:    "hello",
+				DetectionTimeout: 5 * time.Second,
+			},
+			prepareMockPP: func(m *mocks.MockPP) {
+				gomock.InOrder(
+					m.EXPECT().IsShowing(pp.Info).Return(true),
+					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
+					m.EXPECT().Indent().Return(m),
+					m.EXPECT().Noticef(pp.EmojiUserWarning,
+						"TTL=%v is ignored because no domains will be updated",
+						api.TTL(10000)),
+					m.EXPECT().Noticef(pp.EmojiUserWarning,
+						"PROXIED=%s is ignored because no domains will be updated",
+						"true"),
+					m.EXPECT().Noticef(pp.EmojiUserWarning,
+						"RECORD_COMMENT=%s is ignored because no domains will be updated",
+						"hello"),
+				)
+			},
+		},
+		"ignored/waf": {
+			input: &config.Config{ //nolint:exhaustruct
+				UpdateOnStart: true,
+				Provider: map[ipnet.Type]provider.Provider{
+					ipnet.IP6: provider.NewCloudflareTrace(),
+				},
+				Domains: map[ipnet.Type][]domain.Domain{
+					ipnet.IP6: {domain.FQDN("a.b.c")},
+				},
+				ProxiedTemplate: "true",
+				Proxied: map[domain.Domain]bool{
+					domain.FQDN("a.b.c"): true,
+				},
+				WAFListDescription: "My list",
+				DetectionTimeout:   5 * time.Second,
+			},
+			ok: true,
+			expected: &config.Config{ //nolint:exhaustruct
+				UpdateOnStart: true,
+				Provider: map[ipnet.Type]provider.Provider{
+					ipnet.IP6: provider.NewCloudflareTrace(),
+				},
+				Domains: map[ipnet.Type][]domain.Domain{
+					ipnet.IP6: {domain.FQDN("a.b.c")},
+				},
+				ProxiedTemplate: "true",
+				Proxied: map[domain.Domain]bool{
+					domain.FQDN("a.b.c"): true,
+				},
+				WAFListDescription: "My list",
+				DetectionTimeout:   5 * time.Second,
+			},
+			prepareMockPP: func(m *mocks.MockPP) {
+				gomock.InOrder(
+					m.EXPECT().IsShowing(pp.Info).Return(true),
+					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
+					m.EXPECT().Indent().Return(m),
+					m.EXPECT().Noticef(pp.EmojiUserWarning,
+						"WAF_LIST_DESCRIPTION=%s is ignored because no WAF lists will be updated",
+						"My list"),
+				)
+			},
+		},
+		"proxied": {
 			input: &config.Config{ //nolint:exhaustruct
 				UpdateOnStart: true,
 				Provider: map[ipnet.Type]provider.Provider{
@@ -262,7 +376,8 @@ func TestNormalizeConfig(t *testing.T) {
 				Domains: map[ipnet.Type][]domain.Domain{
 					ipnet.IP6: {domain.FQDN("a.b.c"), domain.FQDN("a.bb.c"), domain.FQDN("a.d.e.f")},
 				},
-				ProxiedTemplate: ` true && !is(a.bb.c) `,
+				ProxiedTemplate:  ` true && !is(a.bb.c) `,
+				DetectionTimeout: 5 * time.Second,
 			},
 			ok: true,
 			expected: &config.Config{ //nolint:exhaustruct
@@ -279,16 +394,17 @@ func TestNormalizeConfig(t *testing.T) {
 					domain.FQDN("a.bb.c"):  false,
 					domain.FQDN("a.d.e.f"): true,
 				},
+				DetectionTimeout: 5 * time.Second,
 			},
 			prepareMockPP: func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().IsEnabledFor(pp.Info).Return(true),
+					m.EXPECT().IsShowing(pp.Info).Return(true),
 					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
-					m.EXPECT().IncIndent().Return(m),
+					m.EXPECT().Indent().Return(m),
 				)
 			},
 		},
-		"template/invalid/proxied": {
+		"proxied/invalid/1": {
 			input: &config.Config{ //nolint:exhaustruct
 				UpdateOnStart: true,
 				Provider: map[ipnet.Type]provider.Provider{
@@ -303,14 +419,14 @@ func TestNormalizeConfig(t *testing.T) {
 			expected: nil,
 			prepareMockPP: func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().IsEnabledFor(pp.Info).Return(true),
+					m.EXPECT().IsShowing(pp.Info).Return(true),
 					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
-					m.EXPECT().IncIndent().Return(m),
-					m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a boolean expression: got unexpected token %q", keyProxied, `range`, `range`), //nolint:lll
+					m.EXPECT().Indent().Return(m),
+					m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a boolean expression: got unexpected token %q", keyProxied, `range`, `range`), //nolint:lll
 				)
 			},
 		},
-		"template/error/proxied": {
+		"proxied/invalid/2": {
 			input: &config.Config{ //nolint:exhaustruct
 				UpdateOnStart: true,
 				Provider: map[ipnet.Type]provider.Provider{
@@ -325,14 +441,14 @@ func TestNormalizeConfig(t *testing.T) {
 			expected: nil,
 			prepareMockPP: func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().IsEnabledFor(pp.Info).Return(true),
+					m.EXPECT().IsShowing(pp.Info).Return(true),
 					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
-					m.EXPECT().IncIndent().Return(m),
-					m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a boolean expression: got unexpected token %q", keyProxied, `999`, `999`), //nolint:lll
+					m.EXPECT().Indent().Return(m),
+					m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a boolean expression: got unexpected token %q", keyProxied, `999`, `999`), //nolint:lll
 				)
 			},
 		},
-		"template/error/proxied/ill-formed": {
+		"proxied/invalid/3": {
 			input: &config.Config{ //nolint:exhaustruct
 				UpdateOnStart: true,
 				Provider: map[ipnet.Type]provider.Provider{
@@ -347,66 +463,51 @@ func TestNormalizeConfig(t *testing.T) {
 			expected: nil,
 			prepareMockPP: func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().IsEnabledFor(pp.Info).Return(true),
+					m.EXPECT().IsShowing(pp.Info).Return(true),
 					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
-					m.EXPECT().IncIndent().Return(m),
-					m.EXPECT().Errorf(pp.EmojiUserError, `%s (%q) is missing %q at the end`, keyProxied, `is(12345`, ")"),
+					m.EXPECT().Indent().Return(m),
+					m.EXPECT().Noticef(pp.EmojiUserError, `%s (%q) is missing %q at the end`, keyProxied, `is(12345`, ")"),
 				)
 			},
 		},
-		"delete-on-stop/without-cron": {
+		"dectioctn-time-too-short": {
 			input: &config.Config{ //nolint:exhaustruct
-				DeleteOnStop:  true,
 				UpdateOnStart: true,
-			},
-			ok:       false,
-			expected: nil,
-			prepareMockPP: func(m *mocks.MockPP) {
-				gomock.InOrder(
-					m.EXPECT().IsEnabledFor(pp.Info).Return(true),
-					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
-					m.EXPECT().IncIndent().Return(m),
-					m.EXPECT().Errorf(pp.EmojiUserError, "DELETE_ON_STOP=true will immediately delete all updated DNS records when UPDATE_CRON=@once"), //nolint:lll
-				)
-			},
-		},
-		"delete-on-stop/with-cron": {
-			input: &config.Config{ //nolint:exhaustruct
-				DeleteOnStop: true,
-				UpdateCron:   cron.MustNew("@every 5m"),
 				Provider: map[ipnet.Type]provider.Provider{
 					ipnet.IP6: provider.NewCloudflareTrace(),
 				},
 				Domains: map[ipnet.Type][]domain.Domain{
 					ipnet.IP6: {domain.FQDN("a.b.c")},
 				},
-				ProxiedTemplate: "false",
+				ProxiedTemplate:  "true",
+				DetectionTimeout: time.Nanosecond,
 			},
 			ok: true,
 			expected: &config.Config{ //nolint:exhaustruct
-				DeleteOnStop: true,
-				UpdateCron:   cron.MustNew("@every 5m"),
+				UpdateOnStart: true,
 				Provider: map[ipnet.Type]provider.Provider{
 					ipnet.IP6: provider.NewCloudflareTrace(),
 				},
 				Domains: map[ipnet.Type][]domain.Domain{
 					ipnet.IP6: {domain.FQDN("a.b.c")},
 				},
-				ProxiedTemplate: "false",
-				Proxied: map[domain.Domain]bool{
-					domain.FQDN("a.b.c"): false,
-				},
+				ProxiedTemplate:  "true",
+				Proxied:          map[domain.Domain]bool{domain.FQDN("a.b.c"): true},
+				DetectionTimeout: time.Nanosecond,
 			},
 			prepareMockPP: func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().IsEnabledFor(pp.Info).Return(true),
+					m.EXPECT().IsShowing(pp.Info).Return(true),
 					m.EXPECT().Infof(pp.EmojiEnvVars, "Checking settings . . ."),
-					m.EXPECT().IncIndent().Return(m),
+					m.EXPECT().Indent().Return(m),
+					m.EXPECT().Noticef(pp.EmojiUserWarning,
+						"DETECTION_TIMEOUT=%s may be too short for trying 1.0.0.1 when 1.1.1.1 does not work",
+						time.Nanosecond),
+					m.EXPECT().Hintf(pp.Hint1111Blockage, "%s", provider.Hint1111BlocakageText),
 				)
 			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			mockCtrl := gomock.NewController(t)
@@ -416,11 +517,12 @@ func TestNormalizeConfig(t *testing.T) {
 			if tc.prepareMockPP != nil {
 				tc.prepareMockPP(mockPP)
 			}
-			ok := cfg.NormalizeConfig(mockPP)
+			ok := cfg.Normalize(mockPP)
 			require.Equal(t, tc.ok, ok)
 			if tc.ok {
 				require.Equal(t, tc.expected, cfg)
 			} else {
+				require.Nil(t, tc.expected) // check the test case itself is okay
 				require.Equal(t, tc.input, cfg)
 			}
 		})

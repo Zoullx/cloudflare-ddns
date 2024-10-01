@@ -1,3 +1,151 @@
+# [1.15.0](https://github.com/favonia/cloudflare-ddns/compare/v1.14.2...v1.15.0) (2024-10-01)
+
+This is a major release with many improvements:
+
+1. **New `CLOUDFLARE_*` variables**: Cloudflare is transitioning its tools to use the new prefix `CLOUDFLARE_*`. Therefore, the updater now accepts `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_API_TOKEN_FILE`. The old `CF_API_TOKEN` and `CF_API_TOKEN_FILE` will still be fully supported until 2.0.0, then deprecated (but still supported) until 3.0.0.
+2. **Improved custom IP providers**: The updater now forces IPv4 or IPv6 when connecting to custom IP providers `url:<URL>`. This solves a long-standing issue where custom providers couldn't be used on dual-stack machines supporting both IPv4 and IPv6. This enforcement ensures predictable IPv4/IPv6 detection on such machines.
+3. **Stricter IP validation**: The updater now rejects unusual IP addresses for updating DNS records, such as link-local addresses or IPv4-mapped IPv6 addresses for AAAA records. These addresses are unsuitable and may cause trouble.
+4. **Experimental support of using a network interface’s IP address** (not finalized until 1.16.0): Experimental support lets you use the address assigned to a specific network interface, bypassing the routing table used by the `local` provider. The syntax for this feature is under development and will not be finalized until 1.16.0. Please refer to [README](./README.markdown) and join the discussion on [GitHub issue #713](https://github.com/favonia/cloudflare-ddns/issues/713) if you are interested.
+
+As a reminder, since 1.13.0, **the updater no longer drops superuser privileges and `PUID` and `PGID` are ignored.** Please use Docker’s built-in mechanism to drop privileges. The old Docker Compose template may grant unneeded privileges to the new updater, which is not recommended. Please review the new, simpler, and more secure template in [README](./README.markdown). In a nutshell, **remove the `cap_add` attribute and replace the environment variables `PUID` and `PGID` with the [`user: "UID:GID"` attribute](https://docs.docker.com/reference/compose-file/services/#user)**. Similar options may exist for systems not using Docker Compose.
+
+### Bug Fixes
+
+- **ipnet:** reject IPv4-mapped IPv6 addresses for updating IPv6 records ([#936](https://github.com/favonia/cloudflare-ddns/issues/936)) ([be5b3a7](https://github.com/favonia/cloudflare-ddns/commit/be5b3a7232225d5d9db251357e0caa1326a57aba))
+- **ipnet:** tighten the checking of IP addresses ([#942](https://github.com/favonia/cloudflare-ddns/issues/942)) ([640d30b](https://github.com/favonia/cloudflare-ddns/commit/640d30b1a3d6aa91479391766d90a977e002d84c))
+- **pp:** print blank lines to separate each round of updating ([#958](https://github.com/favonia/cloudflare-ddns/issues/958)) ([0a6c71b](https://github.com/favonia/cloudflare-ddns/commit/0a6c71beeb8cf3bb507f9da3862725441e6f90b7))
+- **provider:** fix the name and messages of custom URL providers ([#940](https://github.com/favonia/cloudflare-ddns/issues/940)) ([2d95d69](https://github.com/favonia/cloudflare-ddns/commit/2d95d69290bb406f6d006e5651613d120de195e5))
+- **provider:** force IPv4/IPv6 for custom URL providers ([#939](https://github.com/favonia/cloudflare-ddns/issues/939)) ([3e80358](https://github.com/favonia/cloudflare-ddns/commit/3e803584db697ff9d89581f5e79df79465dc6521))
+- **updater:** actively close idle connections for IP detection ([#943](https://github.com/favonia/cloudflare-ddns/issues/943)) ([05cbf7e](https://github.com/favonia/cloudflare-ddns/commit/05cbf7e1239fac3197d93c9322dadd92fd8d3609))
+
+### Features
+
+- **config:** accept `CLOUDFLARE_*` and all compatible token settings ([#948](https://github.com/favonia/cloudflare-ddns/issues/948)) ([4fc883c](https://github.com/favonia/cloudflare-ddns/commit/4fc883c45cb3068572d0fa55740ecd338c4ccd4f))
+- **provider:** get IP from a specific network interface ([#941](https://github.com/favonia/cloudflare-ddns/issues/941)) ([69f8cf2](https://github.com/favonia/cloudflare-ddns/commit/69f8cf2f62c533cffb7652fe6377f7a6ba8959cb)) ([#947](https://github.com/favonia/cloudflare-ddns/issues/947)) ([4518fac](https://github.com/favonia/cloudflare-ddns/commit/4518faca43c375545ee3dd6828b571b327579b6b))
+
+# [1.14.2](https://github.com/favonia/cloudflare-ddns/compare/v1.14.1...v1.14.2) (2024-09-13)
+
+This is an urgent hotfix that resolves a nil pointer dereference issue introduced in version 1.14.1.
+
+### Bug Fixes
+
+- fix a nil pointer bug introduced by the commit [319e6a0](https://github.com/favonia/cloudflare-ddns/commit/319e6a0d266a060037c08080ceb2495df600d63f) (issue [#911](https://github.com/favonia/cloudflare-ddns/issues/911)) ([#930](https://github.com/favonia/cloudflare-ddns/issues/930)) ([3ea0eb9](https://github.com/favonia/cloudflare-ddns/commit/3ea0eb9f818cd84965a855e1c6851c6d7ecc6458))
+
+# [1.14.1](https://github.com/favonia/cloudflare-ddns/compare/v1.14.0...v1.14.1) (2024-09-13)
+
+**_This version is buggy; use version 1.14.2 instead._**
+
+This is a minor release that addresses minor issues and improves the usability of the new feature for managing WAF lists, which was initially introduced in version 1.14.0.
+
+### Bug Fixes
+
+- reduce unnecessary quotation marks in logging ([#925](https://github.com/favonia/cloudflare-ddns/issues/925)) ([dc3a26b](https://github.com/favonia/cloudflare-ddns/commit/dc3a26b18c92990e9fe4d2a4d5e6d47ea6153ffb))
+
+### Features
+
+- **api:** clear a WAF list when it cannot be deleted ([#908](https://github.com/favonia/cloudflare-ddns/issues/908)) ([1acf11d](https://github.com/favonia/cloudflare-ddns/commit/1acf11d311addfc504695c788213226b51e5b89b))
+- **api:** warn about mismatched attributes ([#921](https://github.com/favonia/cloudflare-ddns/issues/921)) ([80388a0](https://github.com/favonia/cloudflare-ddns/commit/80388a0959c6828fde2ee55b90100b215ccbeed6))
+
+# [1.14.0](https://github.com/favonia/cloudflare-ddns/compare/v1.13.2...v1.14.0) (2024-08-25)
+
+This is a major release with many improvements! The most significant new feature is the ability to maintain a [WAF list](https://developers.cloudflare.com/waf/tools/lists/) of detected IP addresses; you can then refer to the list in your firewall rules. Please consult the [README](./README.markdown). The second most important update is to use a variant of [the Happy Eyeballs (Fast Fallback) algorithm](https://en.wikipedia.org/wiki/Happy_Eyeballs) to detect the blockage of 1.1.1.1. As the name of the new algorithm suggests, you should not notice any delay due to the detection, being happy. 😄
+
+As a reminder, since 1.13.0, **the updater will no longer drop superuser privileges and `PUID` and `PGID` will be ignored.** Please use Docker’s built-in mechanism to drop privileges. The old Docker Compose template may grant the new updater unneeded privileges, which is not recommended. Please review the new template in [README](./README.markdown) that is simpler and more secure when combined with the new updater. In a nutshell, **remove the `cap_add` attribute and replace the environment variables `PUID` and `PGID` with the [`user: "UID:GID"` attribute](https://docs.docker.com/reference/compose-file/services/#user)**. If you are not using Docker Compose, chances are your system supports similar options under different names.
+
+Other notable changes:
+
+1. The global Cloudflare account ID will no longer be used when searching for DNS zones. `CF_ACCOUNT_ID` will be ignored.
+2. To reduce network traffic and delay, the Cloudflare API token will no longer be additionally verified via [Cloudflare’s token verification API](https://developers.cloudflare.com/api/operations/user-api-tokens-verify-token). Instead, the updater will locally check whether the token looks like a valid [Bearer Token](https://oauth.net/2/bearer-tokens/) before using the API.
+3. Many parts of the [README](./README.markdown) have been rewritten to improve clarity and to document the support of WAF lists.
+4. The DNS record updating algorithm was revised to be more deterministic, which means the updater will not give up updating stale DNS records (and create new ones) when there are errors; it will simply try again next time. As a result, in very rare cases, the updater may need more rounds to recover from errors.
+
+### Bug Fixes
+
+- **api:** decouple account IDs from operations on DNS records ([#875](https://github.com/favonia/cloudflare-ddns/issues/875)) ([0fa1085](https://github.com/favonia/cloudflare-ddns/commit/0fa108504fed7d7e9bd6fce866c6983eaf420f2e))
+- **api:** eliminate potential memory leak in caching ([#854](https://github.com/favonia/cloudflare-ddns/issues/854)) ([b9c7327](https://github.com/favonia/cloudflare-ddns/commit/b9c7327c84910d65b41f68dc74b413cd49b55f7d))
+- **api:** make the updating algorithm more deterministic ([#864](https://github.com/favonia/cloudflare-ddns/issues/864)) ([b557c41](https://github.com/favonia/cloudflare-ddns/commit/b557c41e8873be4132992273356600662f32922f))
+- **api:** remove global account ID and remote token verification ([#877](https://github.com/favonia/cloudflare-ddns/issues/877)) ([5a40ea7](https://github.com/favonia/cloudflare-ddns/commit/5a40ea7c21fd75b3829227b49362b886168dd107))
+- **monitor:** retry connections to Uptime Kuma ([#890](https://github.com/favonia/cloudflare-ddns/issues/890)) ([8236410](https://github.com/favonia/cloudflare-ddns/commit/823641046c62e6a81838fa4e15fa57d4b15995a8))
+- **setter:** do not quote DNS record IDs ([#851](https://github.com/favonia/cloudflare-ddns/issues/851)) ([fc8accb](https://github.com/favonia/cloudflare-ddns/commit/fc8accb45ec17fd4111a5920fccc30fdf5130cbe))
+- **updater:** delete unmanaged IP addresses from WAF lists ([#885](https://github.com/favonia/cloudflare-ddns/issues/885)) ([bf0361c](https://github.com/favonia/cloudflare-ddns/commit/bf0361c85d449cdb703f9565f68dc8aaefb03323))
+- **updater:** show the hint to disable a network when IP detection timeouts ([#859](https://github.com/favonia/cloudflare-ddns/issues/859)) ([bdf154c](https://github.com/favonia/cloudflare-ddns/commit/bdf154c1d7519d5a86ddeb0aa9fd8811bfe1f5d6)) ([#862](https://github.com/favonia/cloudflare-ddns/issues/862)) ([397e722](https://github.com/favonia/cloudflare-ddns/commit/397e722562257523716c37d81709289a126d4636))
+
+### Features
+
+- **api:** ability to update WAF lists ([#797](https://github.com/favonia/cloudflare-ddns/issues/797)) ([180bcd7](https://github.com/favonia/cloudflare-ddns/commit/180bcd7b48104b5bc779ffdad9dc08cdf32c4529))
+- **provider:** Happy Eyeballs for 1.1.1.1 v.s. 1.0.0.1 ([#883](https://github.com/favonia/cloudflare-ddns/issues/883)) ([be0109b](https://github.com/favonia/cloudflare-ddns/commit/be0109b931c3dabebe73694f5205bba2ed22dda3))
+
+# [1.13.2](https://github.com/favonia/cloudflare-ddns/compare/v1.13.1...v1.13.2) (2024-07-23)
+
+This is a quick release to change the default user/group IDs of the shipped Docker images to 1000 (instead of 0, the `root`). The change will help _many_ people use the Docker images more safely. You are still encouraged to review whether the default ID 1000 is what you want. If you have already adopted the new recommended Docker template (in [README](./README.markdown)) with `user: ...` (not `PUID` or `PGID`) to explicitly set the user and group IDs, this release does not affect you.
+
+# [1.13.1](https://github.com/favonia/cloudflare-ddns/compare/v1.13.0...v1.13.1) (2024-07-19)
+
+This is a very minor release that improves the error messages produced by the new API token verifier (introduced in 1.13.0). See [#813](https://github.com/favonia/cloudflare-ddns/issues/813).
+
+### Bug Fixes
+
+- **domain:** fix incorrect parsing of `*.*.foo.bar` ([#809](https://github.com/favonia/cloudflare-ddns/issues/809)) ([9ccf9df](https://github.com/favonia/cloudflare-ddns/commit/9ccf9dfbf3d3ce0211c5af8c5345e809b1d7d266))
+
+# [1.13.0](https://github.com/favonia/cloudflare-ddns/compare/v1.12.0...v1.13.0) (2024-07-16)
+
+This is a major release that no longer drops superuser privileges. Please review the instructions in [README](./README.markdown) for the new recommended setup.
+
+### BREAKING CHANGES
+
+- **The updater will no longer drop superuser privileges and `PUID` and `PGID` will be ignored.** Please use Docker’s built-in mechanism to drop privileges. The old, hacky Docker Compose template will grant the new updater unneeded privileges, which is less secure and not recommended. Please review the new template in [README](./README.markdown) that is simpler and more secure when combined with the new updater. In a nutshell, **remove `cap_add` completely and add `user: ...`** as
+
+  ```yaml
+  user: "1000:1000"
+  # Run the updater with a specific user ID and group ID (in that order).
+  # You should change the two numbers based on your setup.
+  ```
+
+  If you have not, please add `cap_drop: [all]` to drop all Linux capabilities. You should probably remove `PUID` and `PGID` as well because they are now useless.
+
+- In case you are using the `*-nocapdrop` Docker tags, they will no longer be maintained. The updater will no longer drop superuser privileges, and thus the `nocapdrop` builds are identical to the regular ones. Just use the regular Docker tags such as `latest`.
+
+- The older versions used to add the comment “Created by cloudflare-ddns” to all newly created DNS records. Since this version, the comment has become configurable, but by default it is empty. To restore the old behavior, add the configuration `RECORD_COMMENT=Created by cloudflare-ddns` (or any comment you want to use).
+
+### Features
+
+- **api:** make record comment of new DNS records configurable using `RECORD_COMMENT` ([#783](https://github.com/favonia/cloudflare-ddns/issues/783)) ([b10c9a3](https://github.com/favonia/cloudflare-ddns/commit/b10c9a3653d01f16ebbdbce0bdee881b15329e71))
+- **api:** recheck tokens if the network is temporarily down ([#790](https://github.com/favonia/cloudflare-ddns/issues/790)) ([15d1a5a](https://github.com/favonia/cloudflare-ddns/commit/15d1a5af7f5a95ee90d8c8eb9589cc23e9ba1c4b))
+- **api:** smarter sanity checking ([#796](https://github.com/favonia/cloudflare-ddns/issues/796)) ([80dc7f4](https://github.com/favonia/cloudflare-ddns/commit/80dc7f4b7a28431aebe81630cdb2b7ace6f08d88))
+- **cron:** show dates when needed ([#795](https://github.com/favonia/cloudflare-ddns/issues/795)) ([d1850b1](https://github.com/favonia/cloudflare-ddns/commit/d1850b17e797f1d9b9a06de5f28b4fbe25b32f33))
+- **config:** recheck 1.1.1.1 and 1.0.0.1 some time later when probing fails (possibly because the network is temporarily down) ([#788](https://github.com/favonia/cloudflare-ddns/issues/788)) ([0983b06](https://github.com/favonia/cloudflare-ddns/commit/0983b06b4b308be5e0bfd16f2b101114d9008d56))
+- **updater:** bail out faster when it times out ([#784](https://github.com/favonia/cloudflare-ddns/issues/784)) ([3b42131](https://github.com/favonia/cloudflare-ddns/commit/3b42131ab5afc8ba021677ba9325b05fde7c5243))
+
+# [1.12.0](https://github.com/favonia/cloudflare-ddns/compare/v1.11.0...v1.12.0) (2024-06-28)
+
+This is a major release with two significant improvements:
+
+1. The updater can **send general updates via [shoutrrr](https://containrrr.dev/shoutrrr) now.**
+2. The updater **supports non-Linux platforms now.** Linux capabilities are not supported on other platforms, but all other features should run as expected at least on Unix-like platforms.
+
+There are also two notable improvements to the stock Docker images. Starting from this version:
+
+1. Annotations are properly added to the Docker images, thanks to the updates to the upstream Docker toolchain.
+2. A new Docker tag, `1`, is introduced to track the latest version with the major version `1`. I plan to develop `2.0.0` that may contain larger breaking changes. Sticking to `1` instead of `latest` now can avoid unexpected breakage in the future.
+
+Note that the notification system was revamped to integrate [shoutrrr](https://containrrr.dev/shoutrrr). As a result, messages may have been reworded.
+
+### Bug Fixes
+
+- add annotations to Docker images ([#651](https://github.com/favonia/cloudflare-ddns/issues/651)) ([dd04d0d](https://github.com/favonia/cloudflare-ddns/commit/dd04d0d287abe313fa1c446e129da1281a0e1362)) ([#652](https://github.com/favonia/cloudflare-ddns/issues/652)) ([fe2ed00](https://github.com/favonia/cloudflare-ddns/commit/fe2ed0037ebba39bb7f2a4c594f58d462439a76f)) ([#653](https://github.com/favonia/cloudflare-ddns/issues/653)) ([56748eb](https://github.com/favonia/cloudflare-ddns/commit/56748eb00753abaac2b725ffafb80bfd4cb59fd8)) ([#659](https://github.com/favonia/cloudflare-ddns/issues/659)) ([687ccaa](https://github.com/favonia/cloudflare-ddns/commit/687ccaa7a8606f06d4d9e203603791b51f9bee98)), closes [#454](https://github.com/favonia/cloudflare-ddns/issues/454)
+- limit the number of bytes read from an HTTP response (for extra security) ([#629](https://github.com/favonia/cloudflare-ddns/issues/629)) ([d64e8d4](https://github.com/favonia/cloudflare-ddns/commit/d64e8d4da44fb1d497cc871385061fb009e5ead8))
+- **monitor:** force non-empty error messages for Uptime Kuma ([#624](https://github.com/favonia/cloudflare-ddns/issues/624)) ([a9bce5c](https://github.com/favonia/cloudflare-ddns/commit/a9bce5c56df6dbabe9ca4ae973a92cadfef6735b)) ([#774](https://github.com/favonia/cloudflare-ddns/issues/774)) ([df565b9](https://github.com/favonia/cloudflare-ddns/commit/df565b94199ad97642438dd4eb5f9168193c981f))
+- **provider:** trim the response of `url:URL` (generic provider) before parsing it ([#709](https://github.com/favonia/cloudflare-ddns/issues/709)) ([48edb15](https://github.com/favonia/cloudflare-ddns/commit/48edb15b4be0b3c9e74cfe712fc9f1e01c4ef537))
+
+### Features
+
+- **cron:** show the far start time during countdown ([#761](https://github.com/favonia/cloudflare-ddns/issues/761)) ([39c659a](https://github.com/favonia/cloudflare-ddns/commit/39c659a29ff358dee7927148c13c45f2eea90265))
+- **droproot:** support non-Linux platforms ([#733](https://github.com/favonia/cloudflare-ddns/issues/733)) ([a93b6ab](https://github.com/favonia/cloudflare-ddns/commit/a93b6abca56ab0809dc56a84e64e665d1fdede12))
+- **monitor:** prioritize error messages ([#622](https://github.com/favonia/cloudflare-ddns/issues/622)) ([2f653ca](https://github.com/favonia/cloudflare-ddns/commit/2f653caddbb9d948110e79988bfb8523fe7cfccc))
+- **monitor:** send `Failed to detect IPv4/6 address` to monitors ([#620](https://github.com/favonia/cloudflare-ddns/issues/620)) ([f1793ad](https://github.com/favonia/cloudflare-ddns/commit/f1793addc44f28f060732c2bd9add08d7d23018e))
+- **notifier:** embed shoutrrr ([#633](https://github.com/favonia/cloudflare-ddns/issues/633)) ([61f42a0](https://github.com/favonia/cloudflare-ddns/commit/61f42a04b665ffb710b3cc9fb326dbe6ada53125)) ([#640](https://github.com/favonia/cloudflare-ddns/issues/640)) ([817125e](https://github.com/favonia/cloudflare-ddns/commit/817125ef46511d24372f54afb67a90b7547bb532)) ([#762](https://github.com/favonia/cloudflare-ddns/issues/762)) ([c09e2b2](https://github.com/favonia/cloudflare-ddns/commit/c09e2b2ed965b9028a37d21d6a318fca48f539ca)) ([#768](https://github.com/favonia/cloudflare-ddns/issues/768)) ([9cdfec3](https://github.com/favonia/cloudflare-ddns/commit/9cdfec393a3ef24803fc7a1280515c1fda72102e)) ([#772](https://github.com/favonia/cloudflare-ddns/issues/772)) ([b8d4604](https://github.com/favonia/cloudflare-ddns/commit/b8d4604109ae6521266032cd5fc81fd05578fc7a)), closes [#532](https://github.com/favonia/cloudflare-ddns/issues/532)
+- **setter:** print `(cached)` for results based on cached API responses ([#776](https://github.com/favonia/cloudflare-ddns/issues/776)) ([1bcbbf0](https://github.com/favonia/cloudflare-ddns/commit/1bcbbf058741594e13ce6ec382edc908b383f112))
+
 # [1.11.0](https://github.com/favonia/cloudflare-ddns/compare/v1.10.1...v1.11.0) (2023-10-23)
 
 This release adds the experimental support of Uptime Kuma.

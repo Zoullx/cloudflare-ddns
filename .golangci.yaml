@@ -10,38 +10,49 @@ linters-settings:
     settings:
       printf:
         funcs:
+          - github.com/favonia/cloudflare-ddns/internal/message.NewMonitorMessagef
+          - github.com/favonia/cloudflare-ddns/internal/message.NewNotifierMessagef
           - (github.com/favonia/cloudflare-ddns/internal/pp.PP).Infof
           - (github.com/favonia/cloudflare-ddns/internal/pp.PP).Noticef
-          - (github.com/favonia/cloudflare-ddns/internal/pp.PP).Warningf
-          - (github.com/favonia/cloudflare-ddns/internal/pp.PP).Errorf
+          - (github.com/favonia/cloudflare-ddns/internal/pp.PP).Hintf
           - (*github.com/favonia/cloudflare-ddns/internal/mocks.MockPPMockRecorder).Infof
           - (*github.com/favonia/cloudflare-ddns/internal/mocks.MockPPMockRecorder).Noticef
-          - (*github.com/favonia/cloudflare-ddns/internal/mocks.MockPPMockRecorder).Warningf
-          - (*github.com/favonia/cloudflare-ddns/internal/mocks.MockPPMockRecorder).Errorf
+          - (*github.com/favonia/cloudflare-ddns/internal/mocks.MockPPMockRecorder).Hintf
   revive:
     rules:
+      - name: exported
+        arguments:
+          - checkPrivateReceivers
       - name: unused-parameter
         arguments:
           - allowRegex: "^_"
 
+issues:
+  include:
+    - EXC0002
+    - EXC0011
+    - EXC0012
+    - EXC0013
+    - EXC0014
+    - EXC0015
+
 linters:
   enable-all: true
   disable:
-    - deadcode # deprecated
-    - exhaustivestruct # deprecated; replaced by exhaustruct
-    - golint # deprecated; replaced by revive
-    - ifshort # deprecated
-    - interfacer # deprecated
-    - maligned # deprecated, and I value readability over bytes saved by alignment
-    - nosnakecase # deprecated; revive's var-naming check seems to be better
-    - scopelint # deprecated; replaced by exportloopref
-    - structcheck # deprecated
-    - varcheck # deprecated
+    - execinquery # deprecated
+    - gomnd # deprecated
+    - exportloopref # deprecated
+
+    - dupl # somewhat unpredictable, and never leads to actual code changes
+    - goconst # never leads to actual code changes
+    - mnd # never leads to actual code changes
 
     - cyclop # can detect complicated code, but never leads to actual code changes
     - funlen # can detect complicated code, but never leads to actual code changes
     - gocognit # can detect complicated code, but never leads to actual code changes
+    - gocyclo # can detect complicated code, but never leads to actual code changes
     - maintidx # can detect complicated code, but never leads to actual code changes
+    - nestif # can detect complicated code, but never leads to actual code changes
 
     - depguard # useless; I do not introduce a dependency carelessly
     - gosmopolitan # interesting for i18n checking, useless for this project
@@ -51,4 +62,4 @@ linters:
     - wsl # I don't agree with the style enforced by wsl
 
     - ireturn # doesn't work for private struct types; see https://github.com/butuzov/ireturn/issues/31
-    - nonamedreturns # named returns are needed in the internal updater package
+    - nonamedreturns # named returns are needed in the internal setter package for partitioning records

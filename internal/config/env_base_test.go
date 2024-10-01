@@ -37,6 +37,13 @@ func unset(t *testing.T, keys ...string) {
 	}
 }
 
+func urlMustParse(t *testing.T, u string) *url.URL {
+	t.Helper()
+	url, err := url.Parse(u)
+	require.NoError(t, err)
+	return url
+}
+
 //nolint:paralleltest // environment vars are global
 func TestGetenv(t *testing.T) {
 	key := keyPrefix + "VAR"
@@ -51,7 +58,6 @@ func TestGetenv(t *testing.T) {
 		"space1": {true, "    VAL     ", "VAL"},
 		"space2": {true, "     VAL    VAL2 ", "VAL    VAL2"},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			set(t, key, tc.set, tc.val)
 			require.Equal(t, tc.expected, config.Getenv(key))
@@ -60,24 +66,24 @@ func TestGetenv(t *testing.T) {
 }
 
 //nolint:paralleltest // environment vars are global
-func TestGetenvs(t *testing.T) {
+func TestGetenvAsList(t *testing.T) {
 	key := keyPrefix + "VAR"
 	for name, tc := range map[string]struct {
 		set      bool
 		val      string
+		sep      string
 		expected []string
 	}{
-		"nil":         {false, "", []string{}},
-		"empty":       {true, "", []string{}},
-		"only-spaces": {true, "\n   \n  \n \t", []string{}},
-		"simple":      {true, "VAL", []string{"VAL"}},
-		"space1":      {true, "    VAL1 \nVAL2    ", []string{"VAL1", "VAL2"}},
-		"space2":      {true, "     VAL1 \n   VAL2 ", []string{"VAL1", "VAL2"}},
+		"nil":         {false, "", "\n", []string{}},
+		"empty":       {true, "", "\n", []string{}},
+		"only-spaces": {true, "\n   \n  \n \t", "\n", []string{}},
+		"simple":      {true, "VAL", "\n", []string{"VAL"}},
+		"space1":      {true, "    VAL1 \nVAL2    ", "\n", []string{"VAL1", "VAL2"}},
+		"space2":      {true, "     VAL1 \n   VAL2 ", "\n", []string{"VAL1", "VAL2"}},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			set(t, key, tc.set, tc.val)
-			require.Equal(t, tc.expected, config.Getenvs(key))
+			require.Equal(t, tc.expected, config.GetenvAsList(key, tc.sep))
 		})
 	}
 }
@@ -113,7 +119,6 @@ func TestReadString(t *testing.T) {
 		},
 		"string": {true, "string ", "hey", "string", true, nil},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			set(t, key, tc.set, tc.val)
 			field := tc.oldField
@@ -130,165 +135,6 @@ func TestReadString(t *testing.T) {
 }
 
 //nolint:paralleltest // environment vars are global
-func TestReadEmoji(t *testing.T) {
-	key := keyPrefix + "EMOJI"
-	for name, tc := range map[string]struct {
-		set           bool
-		val           string
-		ok            bool
-		prepareMockPP func(*mocks.MockPP)
-	}{
-		"nil":   {false, "", true, nil},
-		"empty": {true, " ", true, nil},
-		"true": {
-			true, " true", true,
-			func(m *mocks.MockPP) {
-				m.EXPECT().SetEmoji(true)
-			},
-		},
-		"false": {
-			true, "    false ", true,
-			func(m *mocks.MockPP) {
-				m.EXPECT().SetEmoji(false)
-			},
-		},
-		"illform": {
-			true, "weird", false,
-			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a boolean: %v", key, "weird", gomock.Any())
-			},
-		},
-	} {
-		tc := tc
-		t.Run(name, func(t *testing.T) {
-			set(t, key, tc.set, tc.val)
-			mockCtrl := gomock.NewController(t)
-			mockPP := mocks.NewMockPP(mockCtrl)
-			if tc.prepareMockPP != nil {
-				tc.prepareMockPP(mockPP)
-			}
-
-			var wrappedPP pp.PP = mockPP
-
-			ok := config.ReadEmoji(key, &wrappedPP)
-			require.Equal(t, tc.ok, ok)
-		})
-	}
-}
-
-//nolint:paralleltest // environment vars are global
-func TestReadQuiet(t *testing.T) {
-	key := keyPrefix + "QUIET"
-	for name, tc := range map[string]struct {
-		set           bool
-		val           string
-		ok            bool
-		prepareMockPP func(*mocks.MockPP)
-	}{
-		"nil":   {false, "", true, nil},
-		"empty": {true, " ", true, nil},
-		"true": {
-			true, " true", true,
-			func(m *mocks.MockPP) {
-				m.EXPECT().SetLevel(pp.Notice)
-			},
-		},
-		"false": {
-			true, "    false ", true,
-			func(m *mocks.MockPP) {
-				m.EXPECT().SetLevel(pp.Info)
-			},
-		},
-		"illform": {
-			true, "weird", false,
-			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a boolean: %v", key, "weird", gomock.Any())
-			},
-		},
-	} {
-		tc := tc
-		t.Run(name, func(t *testing.T) {
-			set(t, key, tc.set, tc.val)
-			mockCtrl := gomock.NewController(t)
-			mockPP := mocks.NewMockPP(mockCtrl)
-			if tc.prepareMockPP != nil {
-				tc.prepareMockPP(mockPP)
-			}
-
-			var wrappedPP pp.PP = mockPP
-
-			ok := config.ReadQuiet(key, &wrappedPP)
-			require.Equal(t, tc.ok, ok)
-		})
-	}
-}
-
-//nolint:paralleltest,funlen // environment vars are global
-func TestReadLinuxID(t *testing.T) {
-	key := keyPrefix + "ID"
-	for name, tc := range map[string]struct {
-		set           bool
-		val           string
-		oldField      int
-		newField      int
-		ok            bool
-		prepareMockPP func(*mocks.MockPP)
-	}{
-		"nil": {
-			false, "", 100, 100, true,
-			func(m *mocks.MockPP) {
-				m.EXPECT().Infof(pp.EmojiBullet, "Use default %s=%d", key, 100)
-			},
-		},
-		"empty": {
-			true, "", 100, 100, true,
-			func(m *mocks.MockPP) {
-				m.EXPECT().Infof(pp.EmojiBullet, "Use default %s=%d", key, 100)
-			},
-		},
-		"zero": {
-			true, "0   ", 100, 100, false,
-			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%d) cannot be zero (the superuser)", key, 0)
-			},
-		},
-		"-1": {
-			true, "   -1", 100, 100, false,
-			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%d) is negative", key, -1)
-			},
-		},
-		"1": {true, "   1   ", 100, 1, true, nil},
-		"1.0": {
-			true, "   1.0   ", 100, 100, false,
-			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a number: %v", key, "1.0", gomock.Any())
-			},
-		},
-		"words": {
-			true, "   word   ", 100, 100, false,
-			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a number: %v", key, "word", gomock.Any())
-			},
-		},
-	} {
-		tc := tc
-		t.Run(name, func(t *testing.T) {
-			set(t, key, tc.set, tc.val)
-			field := tc.oldField
-			mockCtrl := gomock.NewController(t)
-			mockPP := mocks.NewMockPP(mockCtrl)
-			if tc.prepareMockPP != nil {
-				tc.prepareMockPP(mockPP)
-			}
-			ok := config.ReadLinuxID(mockPP, key, &field)
-			require.Equal(t, tc.ok, ok)
-			require.Equal(t, tc.newField, field)
-		})
-	}
-}
-
-//nolint:funlen,paralleltest // environment vars are global
 func TestReadBool(t *testing.T) {
 	key := keyPrefix + "BOOL"
 	for name, tc := range map[string]struct {
@@ -330,17 +176,16 @@ func TestReadBool(t *testing.T) {
 		"illform1": {
 			true, "weird\t  ", false, false, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a boolean: %v", key, "weird", gomock.Any())
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a boolean: %v", key, "weird", gomock.Any())
 			},
 		},
 		"illform2": {
 			true, " weird", true, true, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a boolean: %v", key, "weird", gomock.Any())
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a boolean: %v", key, "weird", gomock.Any())
 			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			set(t, key, tc.set, tc.val)
 			field := tc.oldField
@@ -383,24 +228,23 @@ func TestReadNonnegInt(t *testing.T) {
 		"-1": {
 			true, "   -1", 100, 100, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%d) is negative", key, -1)
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%d) is negative", key, -1)
 			},
 		},
 		"1": {true, "   1   ", 100, 1, true, nil},
 		"1.0": {
 			true, "   1.0   ", 100, 100, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a number: %v", key, "1.0", gomock.Any())
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a number: %v", key, "1.0", gomock.Any())
 			},
 		},
 		"words": {
 			true, "   word   ", 100, 100, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a number: %v", key, "word", gomock.Any())
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a number: %v", key, "word", gomock.Any())
 			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			set(t, key, tc.set, tc.val)
 			field := tc.oldField
@@ -416,7 +260,7 @@ func TestReadNonnegInt(t *testing.T) {
 	}
 }
 
-//nolint:funlen,paralleltest // environment vars are global
+//nolint:paralleltest // environment vars are global
 func TestReadTTL(t *testing.T) {
 	key := keyPrefix + "TTL"
 	for name, tc := range map[string]struct {
@@ -436,36 +280,35 @@ func TestReadTTL(t *testing.T) {
 		"0": {
 			true, "0   ", api.TTLAuto, api.TTLAuto, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%d) should be 1 (auto) or between 30 and 86400", key, 0)
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%d) should be 1 (auto) or between 30 and 86400", key, 0)
 			},
 		},
 		"-1": {
 			true, "   -1", api.TTLAuto, api.TTLAuto, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%d) should be 1 (auto) or between 30 and 86400", key, -1)
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%d) should be 1 (auto) or between 30 and 86400", key, -1)
 			},
 		},
 		"1": {true, "   1   ", api.TTLAuto, api.TTLAuto, true, nil},
 		"20": {
 			true, "   20   ", api.TTLAuto, api.TTLAuto, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%d) should be 1 (auto) or between 30 and 86400", key, 20)
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%d) should be 1 (auto) or between 30 and 86400", key, 20)
 			},
 		},
 		"9999999": {
 			true, "   9999999   ", api.TTLAuto, api.TTLAuto, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%d) should be 1 (auto) or between 30 and 86400", key, 9999999)
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%d) should be 1 (auto) or between 30 and 86400", key, 9999999)
 			},
 		},
 		"words": {
 			true, "   word   ", api.TTLAuto, api.TTLAuto, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a number: %v", key, "word", gomock.Any())
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a number: %v", key, "word", gomock.Any())
 			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			set(t, key, tc.set, tc.val)
 			field := tc.oldField
@@ -509,18 +352,17 @@ func TestReadNonnegDuration(t *testing.T) {
 		"1": {
 			true, "  1  ", 123, 123, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a time duration: %v", key, "1", gomock.Any())
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a time duration: %v", key, "1", gomock.Any())
 			},
 		},
 		"-1s": {
 			true, "  -1s  ", 456, 456, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%v) is negative", key, -time.Second)
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%v) is negative", key, -time.Second)
 			},
 		},
 		"0h": {true, "  0h  ", 123456, 0, true, nil},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			set(t, key, tc.set, tc.val)
 			field := tc.oldField
@@ -536,7 +378,7 @@ func TestReadNonnegDuration(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest,funlen // environment vars are global
+//nolint:paralleltest // environment vars are global
 func TestReadCron(t *testing.T) {
 	key := keyPrefix + "CRON"
 
@@ -574,24 +416,23 @@ func TestReadCron(t *testing.T) {
 		"@disabled": {
 			true, " @disabled  ", cron.MustNew("@yearly"), nil, true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Warningf(pp.EmojiUserWarning, "%s=%s is deprecated; use %s=@once", key, "@disabled", gomock.Any())
+				m.EXPECT().Noticef(pp.EmojiUserWarning, "%s=%s is deprecated; use %s=@once", key, "@disabled", gomock.Any())
 			},
 		},
 		"@nevermore": {
 			true, " @nevermore\t", cron.MustNew("@yearly"), nil, true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Warningf(pp.EmojiUserWarning, "%s=%s is deprecated; use %s=@once", key, "@nevermore", gomock.Any())
+				m.EXPECT().Noticef(pp.EmojiUserWarning, "%s=%s is deprecated; use %s=@once", key, "@nevermore", gomock.Any())
 			},
 		},
 		"@once": {true, "\t\t@once", cron.MustNew("@yearly"), nil, true, nil},
 		"illformed": {
 			true, " @ddddd  ", cron.MustNew("*/4 * * * *"), cron.MustNew("*/4 * * * *"), false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a cron expression: %v", key, "@ddddd", gomock.Any())
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a cron expression: %v", key, "@ddddd", gomock.Any())
 			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			set(t, key, tc.set, tc.val)
 			field := tc.oldField
@@ -605,11 +446,4 @@ func TestReadCron(t *testing.T) {
 			require.Equal(t, tc.newField, field)
 		})
 	}
-}
-
-func urlMustParse(t *testing.T, u string) *url.URL {
-	t.Helper()
-	url, err := url.Parse(u)
-	require.NoError(t, err)
-	return url
 }

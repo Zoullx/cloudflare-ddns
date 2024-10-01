@@ -13,18 +13,19 @@ import (
 	"github.com/favonia/cloudflare-ddns/internal/provider"
 )
 
-//nolint:paralleltest,funlen // paralleltest should not be used because environment vars are global
+//nolint:paralleltest // paralleltest should not be used because environment vars are global
 func TestReadProvider(t *testing.T) {
 	key := keyPrefix + "PROVIDER"
 	keyDeprecated := keyPrefix + "DEPRECATED"
 
 	var (
-		none   provider.Provider
-		doh    = provider.NewCloudflareDOH()
-		trace  = provider.NewCloudflareTrace()
-		local  = provider.NewLocal()
-		ipify  = provider.NewIpify()
-		custom = provider.MustNewCustom("https://url.io")
+		none          provider.Provider
+		doh           = provider.NewCloudflareDOH()
+		trace         = provider.NewCloudflareTrace()
+		local         = provider.NewLocal()
+		localLoopback = provider.NewLocalWithInterface("lo")
+		ipify         = provider.NewIpify()
+		custom        = provider.MustNewCustomURL("https://url.io")
 	)
 
 	for name, tc := range map[string]struct {
@@ -52,7 +53,7 @@ func TestReadProvider(t *testing.T) {
 		"deprecated/cloudflare": {
 			false, "", true, "    cloudflare\t   ", none, trace, true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Warningf(
+				m.EXPECT().Noticef(
 					pp.EmojiUserWarning,
 					`%s=cloudflare is deprecated; use %s=cloudflare.trace or %s=cloudflare.doh`,
 					keyDeprecated, key, key,
@@ -62,7 +63,7 @@ func TestReadProvider(t *testing.T) {
 		"deprecated/cloudflare.trace": {
 			false, "", true, " cloudflare.trace", none, trace, true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Warningf(
+				m.EXPECT().Noticef(
 					pp.EmojiUserWarning,
 					`%s is deprecated; use %s=%s`,
 					keyDeprecated,
@@ -74,7 +75,7 @@ func TestReadProvider(t *testing.T) {
 		"deprecated/cloudflare.doh": {
 			false, "", true, "    \tcloudflare.doh   ", none, doh, true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Warningf(
+				m.EXPECT().Noticef(
 					pp.EmojiUserWarning,
 					`%s is deprecated; use %s=%s`,
 					keyDeprecated,
@@ -86,7 +87,7 @@ func TestReadProvider(t *testing.T) {
 		"deprecated/unmanaged": {
 			false, "", true, "   unmanaged   ", trace, none, true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Warningf(
+				m.EXPECT().Noticef(
 					pp.EmojiUserWarning,
 					`%s is deprecated; use %s=none`,
 					keyDeprecated,
@@ -97,7 +98,7 @@ func TestReadProvider(t *testing.T) {
 		"deprecated/local": {
 			false, "", true, "   local   ", trace, local, true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Warningf(
+				m.EXPECT().Noticef(
 					pp.EmojiUserWarning,
 					`%s is deprecated; use %s=%s`,
 					keyDeprecated,
@@ -109,7 +110,7 @@ func TestReadProvider(t *testing.T) {
 		"deprecated/ipify": {
 			false, "", true, "     ipify  ", trace, ipify, true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Warningf(
+				m.EXPECT().Noticef(
 					pp.EmojiUserWarning,
 					`%s=ipify is deprecated; use %s=cloudflare.trace or %s=cloudflare.doh`,
 					keyDeprecated,
@@ -121,13 +122,13 @@ func TestReadProvider(t *testing.T) {
 		"deprecated/others": {
 			false, "", true, "   something-else ", ipify, ipify, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a valid provider", keyDeprecated, "something-else")
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a valid provider", keyDeprecated, "something-else")
 			},
 		},
 		"conflicts": {
 			true, "cloudflare.doh", true, "cloudflare.doh", ipify, ipify, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(
+				m.EXPECT().Noticef(
 					pp.EmojiUserError,
 					`Cannot have both %s and %s set`,
 					key, keyDeprecated,
@@ -143,7 +144,7 @@ func TestReadProvider(t *testing.T) {
 		"cloudflare": {
 			true, "    cloudflare\t   ", false, "", none, none, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(
+				m.EXPECT().Noticef(
 					pp.EmojiUserError,
 					`%s=cloudflare is invalid; use %s=cloudflare.trace or %s=cloudflare.doh`,
 					key, key, key,
@@ -154,11 +155,27 @@ func TestReadProvider(t *testing.T) {
 		"cloudflare.doh":   {true, "    \tcloudflare.doh   ", false, "", none, doh, true, nil},
 		"none":             {true, "   none   ", false, "", trace, none, true, nil},
 		"local":            {true, "   local   ", false, "", trace, local, true, nil},
-		"custom":           {true, "   url:https://url.io   ", false, "", trace, custom, true, nil},
+		"local.iface:lo": {
+			true, "   local.iface   :  lo ", false, "", trace, localLoopback, true,
+			func(m *mocks.MockPP) {
+				m.EXPECT().Hintf(pp.HintExperimentalLocalWithInterface, `You are using the experimental provider "local.iface:%s" added in version 1.15.0`, "lo") //nolint:lll
+			},
+		},
+		"local.iface:": {
+			true, "   local.iface: ", false, "", trace, trace, false,
+			func(m *mocks.MockPP) {
+				m.EXPECT().Noticef(
+					pp.EmojiUserError,
+					`%s=local.iface: must be followed by a network interface name`,
+					key,
+				)
+			},
+		},
+		"custom": {true, "   url:https://url.io   ", false, "", trace, custom, true, nil},
 		"ipify": {
 			true, "     ipify  ", false, "", trace, ipify, true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Warningf(
+				m.EXPECT().Noticef(
 					pp.EmojiUserWarning,
 					`%s=ipify is deprecated; use %s=cloudflare.trace or %s=cloudflare.doh`,
 					key,
@@ -170,11 +187,10 @@ func TestReadProvider(t *testing.T) {
 		"others": {
 			true, "   something-else ", false, "", ipify, ipify, false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a valid provider", key, "something-else")
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a valid provider", key, "something-else")
 			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			set(t, key, tc.set, tc.val)
 			set(t, keyDeprecated, tc.setDeprecated, tc.valDeprecated)
@@ -191,7 +207,7 @@ func TestReadProvider(t *testing.T) {
 	}
 }
 
-//nolint:funlen,paralleltest // environment vars are global
+//nolint:paralleltest // environment vars are global
 func TestReadProviderMap(t *testing.T) {
 	var (
 		none  provider.Provider
@@ -276,11 +292,10 @@ func TestReadProviderMap(t *testing.T) {
 			},
 			false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "%s (%q) is not a valid provider", "IP4_PROVIDER", "flare")
+				m.EXPECT().Noticef(pp.EmojiUserError, "%s (%q) is not a valid provider", "IP4_PROVIDER", "flare")
 			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			mockCtrl := gomock.NewController(t)
 

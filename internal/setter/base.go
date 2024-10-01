@@ -17,36 +17,44 @@ import (
 
 //go:generate mockgen -typed -destination=../mocks/mock_setter.go -package=mocks . Setter
 
-// ResponseCode encodes the minimum information to generate messages for monitors and notifiers.
-type ResponseCode int
-
-const (
-	// No updates were needed. The records were already okay.
-	ResponseNoUpdatesNeeded = iota
-	// Updates were needed and they are done.
-	ResponseUpdatesApplied
-	// Updates were needed and they did not fully complete. The records may be inconsistent.
-	ResponseUpdatesFailed
-)
-
 // Setter uses [api.Handle] to update DNS records.
 type Setter interface {
 	// Set sets a particular domain to the given IP address.
 	Set(
 		ctx context.Context,
 		ppfmt pp.PP,
-		Domain domain.Domain,
 		IPNetwork ipnet.Type,
+		Domain domain.Domain,
 		IP netip.Addr,
 		ttl api.TTL,
 		proxied bool,
+		recordComment string,
 	) ResponseCode
 
-	// Clear removes DNS records of a particular domain.
-	Delete(
+	// FinalDelete removes DNS records of a particular domain.
+	FinalDelete(
 		ctx context.Context,
 		ppfmt pp.PP,
-		Domain domain.Domain,
 		IPNetwork ipnet.Type,
+		Domain domain.Domain,
+	) ResponseCode
+
+	// SetWAFList keeps only IP ranges overlapping with detected IPs
+	// and makes sure there will be ranges overlapping with detected ones.
+	SetWAFList(
+		ctx context.Context,
+		ppfmt pp.PP,
+		list api.WAFList,
+		listDescription string,
+		detected map[ipnet.Type]netip.Addr,
+		itemComment string,
+	) ResponseCode
+
+	// FinalClearWAFList deletes or empties a list.
+	FinalClearWAFList(
+		ctx context.Context,
+		ppfmt pp.PP,
+		list api.WAFList,
+		listDescription string,
 	) ResponseCode
 }

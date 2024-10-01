@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
@@ -35,23 +36,22 @@ func TestNewUptimeKuma(t *testing.T) {
 		"unexpected": {
 			"https://user:pass@host/path?random=", true,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Warningf(pp.EmojiUserError, "The Uptime Kuma URL (redacted) contains an unexpected query %s=... and it will not be used", "random") //nolint:lll
+				m.EXPECT().Noticef(pp.EmojiUserError, "The Uptime Kuma URL (redacted) contains an unexpected query %s=... and it will be ignored", "random") //nolint:lll
 			},
 		},
 		"ill-formed-query": {
 			"https://user:pass@host/path?status=up;msg=OK;ping=", false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "The Uptime Kuma URL (redacted) does not look like a valid URL")
+				m.EXPECT().Noticef(pp.EmojiUserError, "The Uptime Kuma URL (redacted) does not look like a valid URL")
 			},
 		},
 		"ftp": {
 			"ftp://user:pass@host/", false,
 			func(m *mocks.MockPP) {
-				m.EXPECT().Errorf(pp.EmojiUserError, "The Uptime Kuma URL (redacted) does not look like a valid URL")
+				m.EXPECT().Noticef(pp.EmojiUserError, "The Uptime Kuma URL (redacted) does not look like a valid URL")
 			},
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -63,37 +63,41 @@ func TestNewUptimeKuma(t *testing.T) {
 			m, ok := monitor.NewUptimeKuma(mockPP, tc.input)
 			require.Equal(t, tc.ok, ok)
 			if ok {
-				require.Equal(t, &monitor.UptimeKuma{
+				require.Equal(t, monitor.UptimeKuma{
 					BaseURL: parsedBaseURL,
 					Timeout: monitor.UptimeKumaDefaultTimeout,
 				}, m)
 			} else {
-				require.Nil(t, m)
+				require.Zero(t, m)
 			}
 		})
 	}
 }
 
-func TestUptimeKumaDescripbe(t *testing.T) {
+func TestUptimeKumaDescribe(t *testing.T) {
 	t.Parallel()
 
 	mockCtrl := gomock.NewController(t)
 	mockPP := mocks.NewMockPP(mockCtrl)
+
 	m, ok := monitor.NewUptimeKuma(mockPP, "https://user:pass@host/path")
 	require.True(t, ok)
-	m.Describe(func(service, _params string) {
-		require.Equal(t, "Uptime Kuma", service)
-	})
+
+	count := 0
+	for name := range m.Describe {
+		count++
+		require.Equal(t, "Uptime Kuma", name)
+	}
+	require.Equal(t, 1, count)
 }
 
-//nolint:funlen
 func TestUptimeKumaEndPoints(t *testing.T) {
 	t.Parallel()
 
 	type action int
 	const (
-		ActionOk action = iota
-		ActionNotOk
+		ActionOK action = iota
+		ActionNotOK
 		ActionGarbage
 		ActionAbort
 		ActionFail
@@ -101,13 +105,13 @@ func TestUptimeKumaEndPoints(t *testing.T) {
 
 	successPP := func(m *mocks.MockPP) {
 		gomock.InOrder(
-			m.EXPECT().Warningf(pp.EmojiUserWarning, httpUnsafeMsg),
+			m.EXPECT().Noticef(pp.EmojiUserWarning, httpUnsafeMsg),
 			m.EXPECT().Infof(pp.EmojiPing, "Pinged Uptime Kuma"),
 		)
 	}
 
 	for name, tc := range map[string]struct {
-		endpoint      func(pp.PP, monitor.Monitor) bool
+		endpoint      func(pp.PP, monitor.BasicMonitor) bool
 		url           string
 		status        string
 		msg           string
@@ -119,33 +123,33 @@ func TestUptimeKumaEndPoints(t *testing.T) {
 		prepareMockPP func(*mocks.MockPP)
 	}{
 		"success": {
-			func(ppfmt pp.PP, m monitor.Monitor) bool {
-				return m.Success(context.Background(), ppfmt, "hello")
+			func(ppfmt pp.PP, m monitor.BasicMonitor) bool {
+				return m.Ping(context.Background(), ppfmt, monitor.NewMessagef(true, "hello"))
 			},
 			"/", "up", "OK", "",
-			[]action{ActionOk},
+			[]action{ActionOK},
 			ActionAbort, true,
 			true,
 			successPP,
 		},
 		"success/not-ok": {
-			func(ppfmt pp.PP, m monitor.Monitor) bool {
-				return m.Success(context.Background(), ppfmt, "aloha")
+			func(ppfmt pp.PP, m monitor.BasicMonitor) bool {
+				return m.Ping(context.Background(), ppfmt, monitor.NewMessagef(true, "aloha"))
 			},
 			"/", "up", "OK", "",
-			[]action{ActionNotOk},
+			[]action{ActionNotOK},
 			ActionAbort, false,
 			false,
 			func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().Warningf(pp.EmojiUserWarning, httpUnsafeMsg),
-					m.EXPECT().Warningf(pp.EmojiError, "Failed to ping Uptime Kuma: %q", "bad"),
+					m.EXPECT().Noticef(pp.EmojiUserWarning, httpUnsafeMsg),
+					m.EXPECT().Noticef(pp.EmojiError, "Failed to ping Uptime Kuma: %s", "bad"),
 				)
 			},
 		},
 		"success/garbage-response": {
-			func(ppfmt pp.PP, m monitor.Monitor) bool {
-				return m.Success(context.Background(), ppfmt, "aloha")
+			func(ppfmt pp.PP, m monitor.BasicMonitor) bool {
+				return m.Ping(context.Background(), ppfmt, monitor.NewMessagef(true, "aloha"))
 			},
 			"/", "up", "OK", "",
 			[]action{ActionGarbage},
@@ -153,103 +157,46 @@ func TestUptimeKumaEndPoints(t *testing.T) {
 			false,
 			func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().Warningf(pp.EmojiUserWarning, httpUnsafeMsg),
-					m.EXPECT().Warningf(pp.EmojiError, "Failed to parse the response from Uptime Kuma: %v", gomock.Any()),
+					m.EXPECT().Noticef(pp.EmojiUserWarning, httpUnsafeMsg),
+					m.EXPECT().Noticef(pp.EmojiError, "Failed to parse the response from Uptime Kuma: %v", gomock.Any()),
 				)
 			},
 		},
 		"success/abort/all": {
-			func(ppfmt pp.PP, m monitor.Monitor) bool {
-				return m.Success(context.Background(), ppfmt, "stop now")
+			func(ppfmt pp.PP, m monitor.BasicMonitor) bool {
+				return m.Ping(context.Background(), ppfmt, monitor.NewMessagef(true, "stop now"))
 			},
 			"/", "up", "OK", "",
 			nil, ActionAbort, false,
 			false,
 			func(m *mocks.MockPP) {
 				gomock.InOrder(
-					m.EXPECT().Warningf(pp.EmojiUserWarning, httpUnsafeMsg),
-					m.EXPECT().Warningf(pp.EmojiError, "Failed to send HTTP(S) request to Uptime Kuma: %v", gomock.Any()),
+					m.EXPECT().Noticef(pp.EmojiUserWarning, httpUnsafeMsg),
+					m.EXPECT().Noticef(pp.EmojiError, "Failed to send HTTP(S) request to Uptime Kuma: %v", gomock.Any()),
 				)
 			},
 		},
-		"start": {
-			func(ppfmt pp.PP, m monitor.Monitor) bool {
-				return m.Start(context.Background(), ppfmt, "starting now!")
-			},
-			"/", "", "", "",
-			[]action{},
-			ActionAbort, false,
-			true,
-			func(m *mocks.MockPP) {
-				m.EXPECT().Warningf(pp.EmojiUserWarning, httpUnsafeMsg)
-			},
-		},
 		"failure": {
-			func(ppfmt pp.PP, m monitor.Monitor) bool {
-				return m.Failure(context.Background(), ppfmt, "something's wrong")
+			func(ppfmt pp.PP, m monitor.BasicMonitor) bool {
+				return m.Ping(context.Background(), ppfmt, monitor.NewMessagef(false, "something's wrong"))
 			},
 			"/", "down", "something's wrong", "",
-			[]action{ActionOk},
+			[]action{ActionOK},
 			ActionAbort, true,
 			true,
 			successPP,
 		},
 		"failure/empty": {
-			func(ppfmt pp.PP, m monitor.Monitor) bool {
-				return m.Failure(context.Background(), ppfmt, "")
+			func(ppfmt pp.PP, m monitor.BasicMonitor) bool {
+				return m.Ping(context.Background(), ppfmt, monitor.NewMessagef(false, ""))
 			},
 			"/", "down", "Failing", "",
-			[]action{ActionOk},
-			ActionAbort, true,
-			true,
-			successPP,
-		},
-		"log": {
-			func(ppfmt pp.PP, m monitor.Monitor) bool {
-				return m.Log(context.Background(), ppfmt, "message")
-			},
-			"/", "", "", "",
-			[]action{},
-			ActionAbort, false,
-			true,
-			func(m *mocks.MockPP) {
-				m.EXPECT().Warningf(pp.EmojiUserWarning, httpUnsafeMsg)
-			},
-		},
-		"exitstatus/0": {
-			func(ppfmt pp.PP, m monitor.Monitor) bool {
-				return m.ExitStatus(context.Background(), ppfmt, 0, "bye!")
-			},
-			"/", "", "", "",
-			[]action{},
-			ActionAbort, false,
-			true,
-			func(m *mocks.MockPP) {
-				m.EXPECT().Warningf(pp.EmojiUserWarning, httpUnsafeMsg)
-			},
-		},
-		"exitstatus/1": {
-			func(ppfmt pp.PP, m monitor.Monitor) bool {
-				return m.ExitStatus(context.Background(), ppfmt, 1, "did exit(1)")
-			},
-			"/", "down", "did exit(1)", "",
-			[]action{ActionOk},
-			ActionAbort, true,
-			true,
-			successPP,
-		},
-		"exitstatus/-1": {
-			func(ppfmt pp.PP, m monitor.Monitor) bool {
-				return m.ExitStatus(context.Background(), ppfmt, -1, "feeling negative")
-			},
-			"/", "down", "feeling negative", "",
-			[]action{ActionOk},
+			[]action{ActionOK},
 			ActionAbort, true,
 			true,
 			successPP,
 		},
 	} {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			mockCtrl := gomock.NewController(t)
@@ -261,20 +208,25 @@ func TestUptimeKumaEndPoints(t *testing.T) {
 			visited := 0
 			pinged := false
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				require.Equal(t, http.MethodGet, r.Method)
-				require.Equal(t, tc.url, r.URL.EscapedPath())
+				if !assert.Equal(t, http.MethodGet, r.Method) ||
+					!assert.Equal(t, tc.url, r.URL.EscapedPath()) {
+					panic(http.ErrAbortHandler)
+				}
 
 				q, err := url.ParseQuery(r.URL.RawQuery)
-				require.NoError(t, err)
-				require.Equal(t, url.Values{
-					"status": {tc.status},
-					"msg":    {tc.msg},
-					"ping":   {tc.ping},
-				}, q)
+				if !assert.NoError(t, err) ||
+					!assert.Equal(t, url.Values{
+						"status": {tc.status},
+						"msg":    {tc.msg},
+						"ping":   {tc.ping},
+					}, q) {
+					panic(http.ErrAbortHandler)
+				}
 
-				reqBody, err := io.ReadAll(r.Body)
-				require.NoError(t, err)
-				require.Empty(t, string(reqBody))
+				if reqBody, err := io.ReadAll(r.Body); !assert.NoError(t, err) ||
+					!assert.Empty(t, string(reqBody)) {
+					panic(http.ErrAbortHandler)
+				}
 
 				visited++
 				action := tc.defaultAction
@@ -282,22 +234,27 @@ func TestUptimeKumaEndPoints(t *testing.T) {
 					action = tc.actions[visited-1]
 				}
 				switch action {
-				case ActionOk:
+				case ActionOK:
 					pinged = true
-					_, err := io.WriteString(w, `{"ok":true}`)
-					require.NoError(t, err)
-				case ActionNotOk:
-					_, err := io.WriteString(w, `{"ok":false,"msg":"bad"}`)
-					require.NoError(t, err)
+					if _, err := io.WriteString(w, `{"ok":true}`); !assert.NoError(t, err) {
+						panic(http.ErrAbortHandler)
+					}
+				case ActionNotOK:
+					if _, err := io.WriteString(w, `{"ok":false,"msg":"bad"}`); !assert.NoError(t, err) {
+						panic(http.ErrAbortHandler)
+					}
 				case ActionGarbage:
-					_, err := io.WriteString(w, `This is [ { not a valid JSON`)
-					require.NoError(t, err)
+					if _, err := io.WriteString(w, `This is [ { not a valid JSON`); !assert.NoError(t, err) {
+						panic(http.ErrAbortHandler)
+					}
 				case ActionAbort:
 					panic(http.ErrAbortHandler)
 				case ActionFail:
-					require.FailNow(t, "failing the test")
+					assert.Fail(t, "failing the test")
+					panic(http.ErrAbortHandler)
 				default:
-					require.FailNow(t, "failing the test")
+					assert.Fail(t, "failing the test")
+					panic(http.ErrAbortHandler)
 				}
 			}))
 

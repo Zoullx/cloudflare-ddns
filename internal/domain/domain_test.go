@@ -11,7 +11,6 @@ import (
 	"github.com/favonia/cloudflare-ddns/internal/domain"
 )
 
-//nolint:funlen
 func TestNew(t *testing.T) {
 	t.Parallel()
 	type f = domain.FQDN
@@ -22,6 +21,7 @@ func TestNew(t *testing.T) {
 		ok        bool
 		errString string
 	}{
+		{"tHe.CaPiTaL.cAsE", f("the.capital.case"), true, ""},
 		// The following examples were adapted from https://unicode.org/cldr/utility/idna.jsp
 		{"fass.de", f("fass.de"), true, ""},
 		{"faß.de", f("xn--fa-hia.de"), true, ""},
@@ -96,8 +96,8 @@ func TestNew(t *testing.T) {
 		{"*...｡..a.com", w(".....a.com"), true, ""},
 		{"*......", w(""), true, ""},
 		{"*｡｡｡｡｡｡", w(""), true, ""},
+		{"*.*.*", w("*.*"), false, `idna: disallowed rune U+002A`},
 	} {
-		tc := tc
 		t.Run(tc.input, func(t *testing.T) {
 			t.Parallel()
 			normalized, err := domain.New(tc.input)
